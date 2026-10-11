@@ -47,7 +47,7 @@
     lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
     mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
     squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
-    fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.5, colormap: 'classic',
+    fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
@@ -130,8 +130,22 @@
 
   // ---------------- audio ----------------
   let audio = null;
+  // Before the first user gesture Chrome keeps the context suspended and
+  // resume() never settles, so it is not awaited; audio starts on the
+  // first click or key press.
+  function resumeAudio() {
+    if (!audio || audio.ctx.state === 'running') return;
+    audio.ctx.resume().catch(() => {});
+    if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) {
+      toast('クリックまたはキー操作で音声を開始します', 'info');
+    }
+  }
+  for (const ev of ['pointerdown', 'keydown']) {
+    window.addEventListener(ev, () => { if (audio && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {}); }, true);
+  }
+
   async function ensureAudio() {
-    if (audio) { if (audio.ctx.state !== 'running') await audio.ctx.resume(); return; }
+    if (audio) { resumeAudio(); return; }
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
     const gain = ctx.createGain();
     gain.gain.value = S.volume ** 2;
@@ -151,6 +165,9 @@
     node.connect(gain);
     worker.postMessage({ type: 'audioPort', port: ch.port2 }, [ch.port2]);
     audio = { ctx, node, gain };
+    // Drop what piled up while suspended so playback starts without lag.
+    ctx.addEventListener('statechange', () => { if (ctx.state === 'running') node.port.postMessage({ reset: true }); });
+    resumeAudio();
   }
 
   // Fallback player on the main thread for browsers without usable worklets.
@@ -239,6 +256,7 @@
       await applySource();
       setStatus();
       toast('Pluto に接続しました', 'info');
+      await startLive();
     } catch (e) {
       pluto = null;
       setStatus();

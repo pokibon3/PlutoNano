@@ -44,7 +44,8 @@ console.log('secure:', await ev('isSecureContext'), 'usb:', await ev('typeof nav
 if (mock) {
   await ev(`document.getElementById('introClose').click()`);
   await sleep(1500);
-  await ev(`document.getElementById('btnPlay').click()`);
+  // The app starts receiving on connect; only press play if it did not.
+  await ev(`document.getElementById('btnPlay').classList.contains('on') || document.getElementById('btnPlay').click()`);
   await sleep(4000);
   console.log('status:', await ev(`document.getElementById('statusText').textContent`));
   console.log('meter:', await ev(`document.getElementById('meterText').textContent`));

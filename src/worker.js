@@ -5,7 +5,7 @@
 
 const cfg = {
   fs: 2.4e6, lo: 100e6, vfo: 100e6, mode: 'WFM', bandwidth: 200e3, deemph: 50e-6,
-  squelch: null, stereo: true, fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.5,
+  squelch: null, stereo: true, fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8,
   audioRate: 48000, audio: false,
 };
 
