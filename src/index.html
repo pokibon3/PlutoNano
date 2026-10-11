@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluto Nano SDR</title>
+<style>/*INLINE:style.css*/</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
+    <button id="btnPlay" class="icon play" title="Start / Stop (Space)" disabled>&#9654;</button>
+    <div class="vol" title="Volume">
+      <span class="vol-icon">&#128266;</span>
+      <input id="volume" type="range" min="0" max="1" step="0.01">
+    </div>
+    <div id="freq" class="freq" title="Scroll or click digits to tune. Double-click to type."></div>
+    <input id="freqInput" class="freq-input" type="text" spellcheck="false" hidden>
+    <div class="meter" title="Channel level">
+      <div class="meter-bar"><div id="meterFill"></div><div id="meterSq"></div></div>
+      <span id="meterText">-- dB</span>
+      <span id="stereoInd" class="st" title="FM stereo pilot">ST</span>
+    </div>
+    <div id="bands" class="bands"></div>
+    <div class="spacer"></div>
+    <span id="statusText" class="status">Not connected</span>
+    <button id="btnConnect" class="primary">Connect</button>
+  </header>
+
+  <aside id="sidebar">
+    <details open>
+      <summary>Source</summary>
+      <div class="row"><span class="lbl">Device</span><span id="devName" class="val">—</span></div>
+      <div class="row"><span class="lbl">Sample rate</span>
+        <select id="sampleRate"></select></div>
+      <div class="row"><span class="lbl">RF bandwidth</span>
+        <select id="rfBw"></select></div>
+      <div class="row"><span class="lbl">Gain mode</span>
+        <select id="gainMode">
+          <option value="manual">Manual</option>
+          <option value="slow_attack">AGC slow</option>
+          <option value="fast_attack">AGC fast</option>
+          <option value="hybrid">AGC hybrid</option>
+        </select></div>
+      <div class="row"><span class="lbl">Gain</span>
+        <input id="gain" type="range" min="-3" max="71" step="1"><span id="gainVal" class="num">0 dB</span></div>
+      <div class="row"><span class="lbl">LO</span><span id="loVal" class="val mono">—</span></div>
+      <div class="row"><span class="lbl">RSSI</span><span id="rssiVal" class="val mono">—</span></div>
+    </details>
+
+    <details open>
+      <summary>Radio</summary>
+      <div class="modes" id="modes">
+        <button data-mode="NFM">NFM</button>
+        <button data-mode="WFM">WFM</button>
+        <button data-mode="AM">AM</button>
+        <button data-mode="USB">USB</button>
+        <button data-mode="LSB">LSB</button>
+      </div>
+      <div class="row"><span class="lbl">Bandwidth</span>
+        <input id="bandwidth" type="number" min="0.5" step="0.5"><span class="unit">kHz</span></div>
+      <div class="row"><span class="lbl">Snap</span>
+        <select id="snap">
+          <option value="1">1 Hz</option><option value="10">10 Hz</option><option value="100">100 Hz</option>
+          <option value="1000">1 kHz</option><option value="5000">5 kHz</option><option value="6250">6.25 kHz</option>
+          <option value="8330">8.33 kHz</option><option value="9000">9 kHz</option><option value="10000">10 kHz</option>
+          <option value="12500">12.5 kHz</option><option value="20000">20 kHz</option><option value="25000">25 kHz</option><option value="100000">100 kHz</option>
+        </select></div>
+      <div class="row"><span class="lbl">De-emphasis</span>
+        <select id="deemph">
+          <option value="0">None</option><option value="50">50 µs</option><option value="75">75 µs</option>
+        </select></div>
+      <div class="row"><label class="lbl chk"><input id="stereo" type="checkbox"> Stereo</label>
+        <span class="hint">WFM のみ</span></div>
+      <div class="row"><label class="lbl chk"><input id="squelchOn" type="checkbox"> Squelch</label>
+        <input id="squelch" type="range" min="-120" max="0" step="1"><span id="squelchVal" class="num">-60</span></div>
+    </details>
+
+    <details open>
+      <summary>Display</summary>
+      <div class="row"><span class="lbl">FFT size</span>
+        <select id="fftSize">
+          <option>1024</option><option>2048</option><option>4096</option><option>8192</option><option>16384</option><option>32768</option>
+        </select></div>
+      <div class="row"><span class="lbl">FFT rate</span>
+        <input id="fps" type="range" min="5" max="60" step="1"><span id="fpsVal" class="num">30</span></div>
+      <div class="row"><span class="lbl">Window</span>
+        <select id="window">
+          <option value="bh">Blackman-Harris</option><option value="hann">Hann</option><option value="rect">Rectangular</option>
+        </select></div>
+      <div class="row"><span class="lbl">Smoothing</span>
+        <input id="smoothing" type="range" min="0" max="0.95" step="0.05"><span id="smoothingVal" class="num">0.5</span></div>
+      <div class="row"><span class="lbl">Colormap</span>
+        <select id="colormap">
+          <option value="classic">Classic</option><option value="turbo">Turbo</option><option value="gray">Grayscale</option>
+        </select></div>
+      <div class="row"><span class="lbl">Max</span>
+        <input id="dbMax" type="range" min="-140" max="10" step="1"><span id="dbMaxVal" class="num">0</span></div>
+      <div class="row"><span class="lbl">Min</span>
+        <input id="dbMin" type="range" min="-160" max="-10" step="1"><span id="dbMinVal" class="num">0</span></div>
+    </details>
+
+    <details open>
+      <summary>Wideband scan</summary>
+      <div class="row"><span class="lbl">Preset</span>
+        <select id="scanPreset">
+          <option value="">Custom</option>
+          <option value="76,95">FM broadcast 76–95 MHz</option>
+          <option value="108,137">Airband 108–137 MHz</option>
+          <option value="144,146">2 m band 144–146 MHz</option>
+          <option value="420,440">ISM / 70 cm 420–440 MHz</option>
+          <option value="470,710">Digital TV 470–710 MHz</option>
+          <option value="920,930">920 MHz IoT</option>
+          <option value="2400,2500">2.4 GHz ISM</option>
+          <option value="5150,5850">5 GHz Wi-Fi</option>
+          <option value="70,6000">Full range 70–6000 MHz</option>
+        </select></div>
+      <div class="row"><span class="lbl">Start</span>
+        <input id="scanStart" type="number" min="70" max="6000" step="1"><span class="unit">MHz</span></div>
+      <div class="row"><span class="lbl">Stop</span>
+        <input id="scanStop" type="number" min="70" max="6000" step="1"><span class="unit">MHz</span></div>
+      <div class="row"><span class="lbl">Gain</span>
+        <input id="scanGain" type="range" min="-3" max="71" step="1"><span id="scanGainVal" class="num">0 dB</span></div>
+      <div class="row"><button id="btnScan" class="wide" disabled>Start scan</button></div>
+      <div class="row"><span id="scanInfo" class="hint">Sweeps at 20 MSPS, 16 MHz per step. Click the result to tune there.</span></div>
+    </details>
+  </aside>
+
+  <main id="view">
+    <div id="plots">
+      <canvas id="spec"></canvas>
+      <div id="splitter" title="Drag to resize"></div>
+      <div id="wfWrap">
+        <canvas id="wf"></canvas>
+        <canvas id="wfOverlay"></canvas>
+      </div>
+    </div>
+    <div id="rightbar">
+      <span class="rb-lbl">Zoom</span>
+      <input id="zoom" type="range" min="0" max="1" step="0.001" class="vslider" title="Zoom">
+    </div>
+  </main>
+</div>
+
+<div id="toast" hidden></div>
+
+<div id="intro" hidden>
+  <div class="intro-box">
+    <h1>Pluto Nano SDR</h1>
+    <p>ADALM-Pluto を USB で接続し、<b>Connect</b> を押してデバイスを選択してください。</p>
+    <ul>
+      <li>Chrome / Edge が必要です（WebUSB）。</li>
+      <li>スペクトラム / ウォーターフォールをクリックで同調、ドラッグで VFO 移動、ホイールでステップ同調、Ctrl+ホイールでズーム。</li>
+      <li>周波数表示の桁をホイール / クリックで変更、ダブルクリックで直接入力（MHz）。</li>
+    </ul>
+    <button id="introClose" class="primary">OK</button>
+  </div>
+</div>
+
+<script type="text/plain" id="worker-src">/*INLINE:dsp.js*/
+/*INLINE:worker.js*/</script>
+<script type="text/plain" id="worklet-src">/*INLINE:audio-worklet.js*/</script>
+<script>/*INLINE:pluto.js*/</script>
+<script>/*INLINE:app.js*/</script>
+</body>
+</html>

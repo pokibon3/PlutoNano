@@ -1,0 +1,9 @@
+node_modules/
+.venv/
+.DS_Store
+.claude/
+# Locally built libiio (reference / testing only)
+third_party/
+# Third-party case model files
+stl/
+*.png
