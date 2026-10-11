@@ -1515,6 +1515,16 @@ registerProcessor('pluto-player', PlutoPlayer);
   let pluto = null;
   let state = 'idle'; // idle | live | sweep
   let curLo = S.lo;
+  // After a retune the kernel still holds buffers captured at the old LO,
+  // so each block is tagged with the LO that was in effect when it was read.
+  const LIVE_KERNEL_BUFFERS = 4;
+  const STALE_READS = LIVE_KERNEL_BUFFERS - 1;
+  let rxReads = 0;
+  let loTags = [];
+  function loForRead(n) {
+    while (loTags.length > 1 && loTags[1].at <= n) loTags.shift();
+    return loTags.length ? loTags[0].lo : curLo;
+  }
   let streamToken = 0;
   let rssiTimer = 0;
 
@@ -1626,9 +1636,11 @@ registerProcessor('pluto-player', PlutoPlayer);
     state = 'live';
     lastFFT = null;
     try {
-      await pluto.setKernelBuffers(4);
+      await pluto.setKernelBuffers(LIVE_KERNEL_BUFFERS);
       await applySource();
       await pluto.startRx(blockSize(S.sampleRate));
+      rxReads = 0;
+      loTags = [{ lo: curLo, at: 0 }];
     } catch (e) {
       state = 'idle';
       setStatus();
@@ -1643,7 +1655,8 @@ registerProcessor('pluto-player', PlutoPlayer);
         try {
           const iq = await pluto.readRx();
           if (token !== streamToken) break;
-          worker.postMessage({ type: 'iq', data: iq, lo: curLo }, [iq.buffer]);
+          const lo = loForRead(rxReads++);
+          worker.postMessage({ type: 'iq', data: iq, lo }, [iq.buffer]);
         } catch (e) {
           if (token === streamToken) onDeviceLost('受信エラー: ' + e.message);
           break;
@@ -1696,7 +1709,11 @@ registerProcessor('pluto-player', PlutoPlayer);
     while (loWanted !== null) {
       const t = loWanted;
       loWanted = null;
-      try { await pluto.setFrequency(t); curLo = t; } catch (e) { toast('周波数を設定できません: ' + e.message); }
+      try {
+        await pluto.setFrequency(t);
+        curLo = t;
+        loTags.push({ lo: t, at: rxReads + STALE_READS });
+      } catch (e) { toast('周波数を設定できません: ' + e.message); }
     }
     loBusy = false;
     workerConfig();
@@ -1768,6 +1785,10 @@ registerProcessor('pluto-player', PlutoPlayer);
 
   function setVfo(f, opts = {}) {
     f = clamp(Math.round(f), MIN_F, MAX_F);
+    if (viewCenter !== null) {
+      const [va, vb] = viewRange();
+      if (opts.center || f < va || f > vb) viewCenter = null;
+    }
     S.vfo = f;
     const half = S.sampleRate / 2 * 0.95;
     const [a, b] = vfoEdges(f);
@@ -1911,6 +1932,9 @@ registerProcessor('pluto-player', PlutoPlayer);
   let hoverX = null;
 
   // Visible span: zoom slider 0..1 maps logarithmically from full band to ~1/2000.
+  // Centre of the displayed range while live; null follows the VFO.
+  let viewCenter = null;
+
   function viewRange() {
     if (state === 'sweep' && sweep) {
       const full = sweep.stop - sweep.start;
@@ -1920,8 +1944,9 @@ registerProcessor('pluto-player', PlutoPlayer);
     }
     const fs = S.sampleRate;
     const span = Math.max(fs / Math.pow(2000, S.zoom), 2000);
-    const lo = state === 'live' && lastFFT ? lastFFT.f0 + fs / 2 : S.lo;
-    const c = clamp(S.vfo, lo - fs / 2 + span / 2, lo + fs / 2 - span / 2);
+    // While panning, follow the LO being tuned rather than the last frame.
+    const lo = state === 'live' && lastFFT && !(drag && drag.kind === 'pan') ? lastFFT.f0 + fs / 2 : S.lo;
+    const c = clamp(viewCenter ?? S.vfo, lo - fs / 2 + span / 2, lo + fs / 2 - span / 2);
     return [c - span / 2, c + span / 2];
   }
 
@@ -2258,12 +2283,18 @@ registerProcessor('pluto-player', PlutoPlayer);
       const W = el.width;
       const f = xToFreq(x * dpr, W);
       el.setPointerCapture(e.pointerId);
+      const [va, vb] = viewRange();
+      // Spectrum: dragging the background scrolls the frequency; a click
+      // without movement tunes there (decided on pointerup).
+      const pan = { kind: 'pan', el, x0: x, f, hzPerPx: (vb - va) / el.clientWidth, moved: false };
       if (state === 'sweep') {
-        tuneFromScan(f);
+        drag = Object.assign(pan, { center0: (va + vb) / 2 });
         return;
       }
       const edge = el === specCanvas ? hitEdge(x, W) : null;
       if (edge) { drag = { kind: 'edge', edge, el }; return; }
+      // Spectrum: always scroll (the VFO only moves on a plain click).
+      if (el === specCanvas) { drag = Object.assign(pan, { center0: (va + vb) / 2, span: vb - va }); return; }
       const [a, b] = vfoEdges();
       if (f >= a && f <= b) drag = { kind: 'vfo', el, off: S.vfo - f };
       else { drag = { kind: 'vfo', el, off: 0 }; setVfo(snap(f)); }
@@ -2276,6 +2307,35 @@ registerProcessor('pluto-player', PlutoPlayer);
       const W = el.width;
       if (!drag) {
         el.style.cursor = el === specCanvas && hitEdge(x, W) ? 'ew-resize' : 'crosshair';
+        return;
+      }
+      if (drag.kind === 'pan') {
+        const dx = x - drag.x0;
+        if (!drag.moved && Math.abs(dx) < 4) return;
+        drag.moved = true;
+        el.style.cursor = 'grabbing';
+        const df = -dx * drag.hzPerPx;
+        if (state === 'sweep') {
+          if (sweep && drag.center0 != null) { sweep.viewCenter = drag.center0 + df; dirty = true; }
+          return;
+        }
+        // Scroll the displayed range. The VFO keeps its frequency; the LO
+        // follows when the view leaves the captured band.
+        const fs = S.sampleRate, span = drag.span;
+        const c = clamp(drag.center0 + df, MIN_F + span / 2, MAX_F - span / 2);
+        let lo = S.lo;
+        if (c - span / 2 < lo - fs / 2) lo = c - span / 2 + fs / 2;
+        if (c + span / 2 > lo + fs / 2) lo = c + span / 2 - fs / 2;
+        viewCenter = c;
+        if (Math.round(lo) !== S.lo) {
+          // Keep the VFO inside the band; it is pushed along at the edge.
+          const half = fs / 2 * 0.95;
+          const v = clamp(S.vfo, lo - half, lo + half);
+          if (v !== S.vfo) { S.vfo = snap(v); renderFreq(); updateBands(); }
+          setLo(lo);
+          save();
+        }
+        dirty = true;
         return;
       }
       const f = xToFreq(x * dpr, W);
@@ -2295,9 +2355,15 @@ registerProcessor('pluto-player', PlutoPlayer);
         setBandwidth(clamp(Math.round(bw / 100) * 100, mn, mx));
       }
     });
-    const end = () => { drag = null; };
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
+    el.addEventListener('pointerup', () => {
+      const d = drag;
+      drag = null;
+      el.style.cursor = 'crosshair';
+      if (!d || d.kind !== 'pan' || d.moved) return;
+      if (state === 'sweep') tuneFromScan(d.f);
+      else setVfo(snap(d.f));
+    });
+    el.addEventListener('pointercancel', () => { drag = null; });
     el.addEventListener('pointerleave', () => { hoverX = null; dirty = true; });
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -2407,7 +2473,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     wfRows.length = 0;
     if (pluto) {
       try {
-        await pluto.setKernelBuffers(4);
+        await pluto.setKernelBuffers(LIVE_KERNEL_BUFFERS);
         await applySource();
       } catch (e) { /* reported on next start */ }
     }
@@ -2418,6 +2484,7 @@ registerProcessor('pluto-player', PlutoPlayer);
   async function tuneFromScan(f) {
     f = snap(clamp(f, MIN_F, MAX_F));
     await stopSweep();
+    viewCenter = null;
     S.vfo = f;
     S.lo = f;
     curLo = f;
