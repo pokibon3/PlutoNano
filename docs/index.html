@@ -161,7 +161,7 @@ details[open] > summary::before { content: "▾ "; }
 
 .center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .freq-box { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 10px 4px; }
-.info { display: flex; align-items: center; gap: 5px; overflow: hidden; }
+.freq-box .info { display: flex; align-items: center; gap: 5px; overflow: hidden; }
 .tag {
   font: 600 11px/1 ui-monospace, Menlo, monospace; padding: 2px 4px; border-radius: 2px; white-space: nowrap;
   color: var(--lcd); border: 1px solid var(--lcd-dim); background: transparent; flex: none;
@@ -233,7 +233,8 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 @container (max-width: 1020px) { .freq { --dh: 34px; } .meter-box { width: 180px; } }
 @container (max-width: 900px) { .steps { display: none; } }
 @container (max-width: 700px) { .meter-box { display: none; } .freq { --dh: 30px; } }
-@container (max-width: 470px) { .dial-box { display: none; } .info .tag:not(.flag):not(#modeBadge) { display: none; } }
+@container (max-width: 470px) { .dial-box { display: none; } .freq-box .info .tag:not(.flag):not(#modeBadge) { display: none; } }
+#toast[hidden] { display: none; }
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">

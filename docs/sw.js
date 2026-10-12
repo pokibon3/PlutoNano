@@ -1,6 +1,6 @@
 // Offline cache for the installed app. CACHE changes with every build,
 // so a new build replaces the cached files.
-const CACHE = 'plutonano-2a5047556196';
+const CACHE = 'plutonano-886b4206f809';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
