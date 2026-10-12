@@ -45,6 +45,9 @@
         </select></div>
       <div class="row"><span class="lbl">Gain</span>
         <input id="gain" type="range" min="-3" max="71" step="1"><span id="gainVal" class="num">0 dB</span></div>
+      <div class="row" title="水晶の誤差を補正します。表示が本来の周波数より低く見えるときはプラス、高く見えるときはマイナス。ずれ(Hz) ÷ 周波数(MHz) = ppm">
+        <span class="lbl">Freq. corr.</span>
+        <input id="ppm" type="number" min="-100" max="100" step="0.1"><span class="unit">ppm</span></div>
       <div class="row"><span class="lbl">LO</span><span id="loVal" class="val mono">—</span></div>
       <div class="row"><span class="lbl">RSSI</span><span id="rssiVal" class="val mono">—</span></div>
     </details>

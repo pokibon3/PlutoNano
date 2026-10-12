@@ -271,6 +271,10 @@
     setGainMode(mode) { return this.phyWrite(Pluto.RX, 'gain_control_mode', mode); }
     setGain(db) { return this.phyWrite(Pluto.RX, 'hardwaregain', String(Math.round(db))); }
     async getGain() { return parseFloat(await this.phyRead(Pluto.RX, 'hardwaregain')); }
+    // Reference clock (nominally 40 MHz). Telling the driver its true
+    // frequency corrects the LO and sample rate for crystal error.
+    setXoCorrection(hz) { return this.phyWrite(null, 'xo_correction', Math.round(hz)); }
+    async getXoCorrection() { return parseInt(await this.phyRead(null, 'xo_correction'), 10); }
     async getRssi() { return parseFloat(await this.phyRead(Pluto.RX, 'rssi')); }
     async getRange(chan, attr) {
       const s = await this.phyRead(chan, attr);

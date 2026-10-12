@@ -205,6 +205,9 @@ details[open] > summary::before { content: "▾ "; }
         </select></div>
       <div class="row"><span class="lbl">Gain</span>
         <input id="gain" type="range" min="-3" max="71" step="1"><span id="gainVal" class="num">0 dB</span></div>
+      <div class="row" title="水晶の誤差を補正します。表示が本来の周波数より低く見えるときはプラス、高く見えるときはマイナス。ずれ(Hz) ÷ 周波数(MHz) = ppm">
+        <span class="lbl">Freq. corr.</span>
+        <input id="ppm" type="number" min="-100" max="100" step="0.1"><span class="unit">ppm</span></div>
       <div class="row"><span class="lbl">LO</span><span id="loVal" class="val mono">—</span></div>
       <div class="row"><span class="lbl">RSSI</span><span id="rssiVal" class="val mono">—</span></div>
     </details>
@@ -1241,6 +1244,10 @@ registerProcessor('pluto-player', PlutoPlayer);
     setGainMode(mode) { return this.phyWrite(Pluto.RX, 'gain_control_mode', mode); }
     setGain(db) { return this.phyWrite(Pluto.RX, 'hardwaregain', String(Math.round(db))); }
     async getGain() { return parseFloat(await this.phyRead(Pluto.RX, 'hardwaregain')); }
+    // Reference clock (nominally 40 MHz). Telling the driver its true
+    // frequency corrects the LO and sample rate for crystal error.
+    setXoCorrection(hz) { return this.phyWrite(null, 'xo_correction', Math.round(hz)); }
+    async getXoCorrection() { return parseInt(await this.phyRead(null, 'xo_correction'), 10); }
     async getRssi() { return parseFloat(await this.phyRead(Pluto.RX, 'rssi')); }
     async getRange(chan, attr) {
       const s = await this.phyRead(chan, attr);
@@ -1379,7 +1386,7 @@ registerProcessor('pluto-player', PlutoPlayer);
   const DEFAULTS = {
     lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
     mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
-    squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
+    ppm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
     fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
@@ -1634,12 +1641,25 @@ registerProcessor('pluto-player', PlutoPlayer);
 
   async function applySource() {
     if (!pluto) return;
+    await applyPpm();
     await pluto.setSampleRate(S.sampleRate);
     await pluto.setBandwidth(rfBandwidth());
     await pluto.setGainMode(S.gainMode);
     if (S.gainMode === 'manual') await pluto.setGain(S.gain);
     await pluto.setFrequency(S.lo);
     curLo = S.lo;
+  }
+
+  // Crystal correction: +ppm means the reference runs fast, so signals
+  // appear lower than their true frequency.
+  const XO_NOMINAL = 40e6;
+  async function applyPpm() {
+    if (!pluto) return;
+    try {
+      await pluto.setXoCorrection(XO_NOMINAL * (1 + S.ppm * 1e-6));
+    } catch (e) {
+      toast('周波数補正を設定できません: ' + e.message);
+    }
   }
 
   function blockSize(fs) {
@@ -2528,6 +2548,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     $('rfBw').value = S.rfBw;
     $('gainMode').value = S.gainMode;
     $('gain').value = S.gain;
+    $('ppm').value = S.ppm;
     $('gain').disabled = S.gainMode !== 'manual';
     $('gainVal').textContent = S.gain + ' dB';
     document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.mode));
@@ -2598,6 +2619,18 @@ registerProcessor('pluto-player', PlutoPlayer);
           await pluto.setGainMode(S.gainMode);
           if (S.gainMode === 'manual') await pluto.setGain(S.gain);
         } catch (err) { toast(err.message); }
+      }
+    });
+    on('ppm', 'change', async (e) => {
+      S.ppm = clamp(Math.round((+e.target.value || 0) * 10) / 10, -100, 100);
+      e.target.value = S.ppm;
+      save();
+      if (!pluto) return;
+      await applyPpm();
+      // The driver recomputes dividers from the new reference on the next write.
+      if (state !== 'sweep') {
+        await pluto.setSampleRate(S.sampleRate).catch(() => {});
+        await pluto.setFrequency(curLo).catch(() => {});
       }
     });
     on('gain', 'input', (e) => {

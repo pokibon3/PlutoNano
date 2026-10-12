@@ -46,7 +46,7 @@
   const DEFAULTS = {
     lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
     mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
-    squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
+    ppm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
     fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
@@ -301,12 +301,25 @@
 
   async function applySource() {
     if (!pluto) return;
+    await applyPpm();
     await pluto.setSampleRate(S.sampleRate);
     await pluto.setBandwidth(rfBandwidth());
     await pluto.setGainMode(S.gainMode);
     if (S.gainMode === 'manual') await pluto.setGain(S.gain);
     await pluto.setFrequency(S.lo);
     curLo = S.lo;
+  }
+
+  // Crystal correction: +ppm means the reference runs fast, so signals
+  // appear lower than their true frequency.
+  const XO_NOMINAL = 40e6;
+  async function applyPpm() {
+    if (!pluto) return;
+    try {
+      await pluto.setXoCorrection(XO_NOMINAL * (1 + S.ppm * 1e-6));
+    } catch (e) {
+      toast('周波数補正を設定できません: ' + e.message);
+    }
   }
 
   function blockSize(fs) {
@@ -1195,6 +1208,7 @@
     $('rfBw').value = S.rfBw;
     $('gainMode').value = S.gainMode;
     $('gain').value = S.gain;
+    $('ppm').value = S.ppm;
     $('gain').disabled = S.gainMode !== 'manual';
     $('gainVal').textContent = S.gain + ' dB';
     document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.mode));
@@ -1265,6 +1279,18 @@
           await pluto.setGainMode(S.gainMode);
           if (S.gainMode === 'manual') await pluto.setGain(S.gain);
         } catch (err) { toast(err.message); }
+      }
+    });
+    on('ppm', 'change', async (e) => {
+      S.ppm = clamp(Math.round((+e.target.value || 0) * 10) / 10, -100, 100);
+      e.target.value = S.ppm;
+      save();
+      if (!pluto) return;
+      await applyPpm();
+      // The driver recomputes dividers from the new reference on the next write.
+      if (state !== 'sweep') {
+        await pluto.setSampleRate(S.sampleRate).catch(() => {});
+        await pluto.setFrequency(curLo).catch(() => {});
       }
     });
     on('gain', 'input', (e) => {
