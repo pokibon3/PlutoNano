@@ -1,0 +1,3404 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluto Nano SDR</title>
+<meta name="theme-color" content="#18181a">
+<style>:root {
+  --bg: #0f0f10;
+  --panel: #18181a;
+  --panel-2: #222226;
+  --border: #2c2c31;
+  --text: #e4e4e7;
+  --muted: #8b8b94;
+  --accent: #4296fa;
+  --accent-2: #2a6fc4;
+  --danger: #e5484d;
+  --ok: #3dd68c;
+  --vfo: rgba(66, 150, 250, 0.22);
+  --vfo-line: #ff4d4d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+body { font: 13px/1.35 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", sans-serif; overflow: hidden; }
+
+button, select, input { font: inherit; color: inherit; }
+button {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 10px; cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent-2); border-color: var(--accent); }
+button.active { background: var(--accent-2); border-color: var(--accent); }
+button.icon { width: 34px; height: 30px; padding: 0; font-size: 16px; }
+button.wide { width: 100%; }
+
+select, input[type=number], input[type=text] {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; min-width: 0;
+}
+input[type=range] { accent-color: var(--accent); min-width: 0; }
+
+#app {
+  display: grid; height: 100vh;
+  grid-template-columns: 290px 1fr; grid-template-rows: 40px auto 1fr;
+  grid-template-areas: "top top" "side panel" "side view";
+}
+#app.nomenu { grid-template-columns: 0 1fr; }
+#app.nomenu #sidebar { display: none; }
+
+#topbar {
+  grid-area: top; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; padding: 0 10px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.tb-left, .tb-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tb-right { justify-content: flex-end; gap: 6px; }
+.spacer { flex: 1; }
+.brand { white-space: nowrap; letter-spacing: 0.5px; color: var(--muted); }
+.brand b { color: var(--text); font-weight: 700; margin-right: 4px; }
+.tb-btn { height: 30px; min-width: 104px; padding: 0 12px; font-weight: 600; }
+.tb-btn .ic { display: inline-block; width: 1em; }
+.tb-btn.play.on .ic { color: var(--danger); }
+
+#sidebar {
+  grid-area: side; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--border);
+  padding: 6px 8px 20px;
+}
+details { border-bottom: 1px solid var(--border); padding: 4px 0 8px; }
+summary {
+  cursor: pointer; font-weight: 600; padding: 6px 2px; color: var(--text); list-style: none;
+}
+summary::before { content: "▸ "; color: var(--muted); }
+details[open] > summary::before { content: "▾ "; }
+.row { display: flex; align-items: center; gap: 8px; margin: 5px 2px; min-height: 26px; }
+.row .lbl { width: 92px; flex: none; color: var(--muted); }
+.row .lbl.chk { display: flex; align-items: center; gap: 4px; color: var(--text); }
+.row select, .row input[type=number] { flex: 1; }
+.row input[type=range] { flex: 1; }
+.row .num { width: 46px; text-align: right; font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.row .unit { color: var(--muted); }
+.row .val { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mono { font-family: ui-monospace, Menlo, monospace; }
+.hint { color: var(--muted); font-size: 12px; }
+
+#view { grid-area: view; display: flex; min-width: 0; min-height: 0; }
+#plots { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#spec { width: 100%; height: 32%; display: block; flex: none; cursor: crosshair; }
+#splitter {
+  position: relative; z-index: 5; height: 6px; flex: none; background: var(--panel); cursor: ns-resize;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); touch-action: none;
+}
+/* Larger invisible grab area overlapping the plots above and below. */
+#splitter::before { content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
+#splitter::after {
+  content: ""; position: absolute; left: 50%; top: 1px; width: 40px; height: 2px; margin-left: -20px;
+  border-radius: 1px; background: var(--muted);
+}
+#splitter:hover, #splitter.drag { background: var(--accent-2); }
+#wfWrap { position: relative; flex: 1; min-height: 0; }
+#wf, #wfOverlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#wfOverlay { cursor: crosshair; }
+
+#rightbar {
+  width: 34px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 8px 0; background: var(--panel); border-left: 1px solid var(--border);
+}
+.rb-lbl { font-size: 11px; color: var(--muted); }
+.vslider { writing-mode: vertical-lr; direction: rtl; flex: 1; width: 18px; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: #2a1517; border: 1px solid var(--danger); color: #ffd7d9;
+  padding: 8px 14px; border-radius: 6px; max-width: min(90vw, 640px); z-index: 10;
+}
+#toast.info { background: #13202f; border-color: var(--accent); color: #dbeafe; }
+
+#intro {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 20;
+}
+#intro[hidden] { display: none; }
+.intro-box {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; max-width: 520px;
+}
+.intro-box h1 { margin: 0 0 8px; font-size: 20px; }
+.intro-box ul { padding-left: 18px; color: var(--muted); }
+
+@media (max-width: 760px) {
+  #app { grid-template-columns: 0 1fr; }
+  #app.menu-open { grid-template-columns: 1fr; grid-template-rows: 40px 1fr; grid-template-areas: "top" "side"; }
+  #app:not(.menu-open) #sidebar { display: none; }
+  #app.menu-open #view, #app.menu-open #panel { display: none; }
+  .brand span { display: none; }
+  .tb-btn { min-width: 0; }
+}
+
+/* ---------------- front panel (transceiver style) ---------------- */
+#panel {
+  grid-area: panel; container-type: inline-size; display: flex; gap: 12px; height: 152px; padding: 10px 12px;
+  background: linear-gradient(#232328, #141417 60%, #101012); border-bottom: 1px solid #000;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --lcd: #62e2ff; --lcd-dim: rgba(98, 226, 255, 0.55); --lcd-ghost: rgba(98, 226, 255, 0.07);
+  --lcd-bg: #03111a; --lcd-tint: #0a2a3a; --over: #ff5b4a; --needle: #ffffff;
+}
+#panel[data-theme=amber] {
+  --lcd: #ffb648; --lcd-dim: rgba(255, 182, 72, 0.55); --lcd-ghost: rgba(255, 182, 72, 0.07);
+  --lcd-bg: #140b02; --lcd-tint: #33200a; --over: #ff4a3a; --needle: #ff4a3a;
+}
+.lcd {
+  background: radial-gradient(ellipse at 50% -20%, var(--lcd-tint), var(--lcd-bg) 75%);
+  border: 1px solid #000; border-radius: 6px; color: var(--lcd);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.meter-box { width: 210px; flex: none; display: flex; flex-direction: column; padding: 4px 6px 4px; }
+#smeter { flex: 1; min-height: 0; width: 100%; display: block; cursor: pointer; }
+.meter-read { display: flex; justify-content: space-between; font: 600 13px ui-monospace, Menlo, monospace; padding: 0 4px; }
+#meterS { text-shadow: 0 0 6px var(--lcd-dim); }
+#meterText { color: var(--lcd-dim); }
+
+.center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.freq-box { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 10px 4px; }
+.info { display: flex; align-items: center; gap: 5px; overflow: hidden; }
+.tag {
+  font: 600 11px/1 ui-monospace, Menlo, monospace; padding: 2px 4px; border-radius: 2px; white-space: nowrap;
+  color: var(--lcd); border: 1px solid var(--lcd-dim); background: transparent; flex: none;
+}
+button.tag { cursor: pointer; }
+button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lcd-ghost); }
+.tag.flag { color: var(--lcd-ghost); border-color: var(--lcd-ghost); }
+.tag.flag.on { color: var(--lcd-bg); background: var(--lcd); border-color: var(--lcd); box-shadow: 0 0 6px var(--lcd-dim); }
+#clock { border-color: transparent; color: var(--lcd-dim); }
+
+.freq-row { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 0; }
+.freq-row .freq { margin-left: auto; }
+/* Touch-panel style mode keys to the right of the frequency. */
+.modes { display: grid; grid-template-columns: repeat(3, 42px); gap: 4px; margin-left: 10px; flex: none; }
+.modes button {
+  padding: 3px 0; font: 700 11px/1.2 ui-monospace, Menlo, monospace; color: var(--lcd); background: transparent;
+  border: 1px solid var(--lcd-dim); border-radius: 3px;
+}
+.modes button:hover:not(:disabled) { border-color: var(--lcd); background: var(--lcd-ghost); }
+.modes button.active { color: var(--lcd-bg); background: var(--lcd); border-color: var(--lcd); box-shadow: 0 0 6px var(--lcd-dim); }
+.freq { display: flex; align-items: flex-end; user-select: none; cursor: ns-resize; --dh: 40px; }
+.freq[hidden] { display: none; }
+.freq .d { display: block; height: var(--dh); width: calc(var(--dh) * 0.78); padding: 0 calc(var(--dh) * 0.05); border-radius: 3px; }
+.freq .d.small { height: calc(var(--dh) * 0.68); width: calc(var(--dh) * 0.68 * 0.78); }
+.freq .d:hover { background: var(--lcd-ghost); }
+.freq svg { width: 100%; height: 100%; display: block; transform: skewX(-6deg); overflow: visible; }
+.freq polygon { fill: var(--lcd-ghost); }
+.freq polygon.on { fill: var(--lcd); filter: drop-shadow(0 0 3px var(--lcd-dim)); }
+.freq .sep { width: calc(var(--dh) * 0.16); height: var(--dh); position: relative; }
+.freq .sep::after {
+  content: ""; position: absolute; left: 25%; bottom: 0; width: calc(var(--dh) * 0.1); height: calc(var(--dh) * 0.1);
+  background: var(--lcd); box-shadow: 0 0 4px var(--lcd-dim);
+}
+.freq .sep.off::after { background: var(--lcd-ghost); box-shadow: none; }
+.freq-unit { font: 700 14px ui-monospace, Menlo, monospace; color: var(--lcd-dim); align-self: flex-end; margin-bottom: 4px; }
+.freq-input {
+  font: 600 30px ui-monospace, Menlo, monospace; width: 280px; color: var(--lcd);
+  background: transparent; border: 1px solid var(--lcd-dim); border-radius: 3px;
+}
+
+/* Hardware-style keys with an LED strip that lights when active. */
+.key {
+  position: relative; padding: 7px 0 3px; font: 600 11px/1 ui-monospace, Menlo, monospace; color: #d6d6dc;
+  background: linear-gradient(#3a3a41, #24242a); border: 1px solid #050506; border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.13), 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.key::before {
+  content: ""; position: absolute; top: 3px; left: 28%; right: 28%; height: 2px; border-radius: 1px; background: #44444b;
+}
+.key.active { background: linear-gradient(#3a3a41, #24242a); border-color: #050506; color: #fff; }
+.key.active::before { background: var(--lcd); box-shadow: 0 0 6px var(--lcd); }
+.key:active { transform: translateY(1px); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); }
+.key:hover:not(:disabled) { border-color: #050506; color: #fff; }
+.bands { display: flex; gap: 4px; flex: none; }
+.bands .key { flex: 1; min-width: 0; height: 26px; }
+
+.steps { flex: none; display: grid; grid-template-columns: repeat(2, 50px); grid-auto-rows: 1fr; gap: 4px; }
+.steps .key { padding-top: 6px; }
+.steps .key.mod { color: #a8a8b0; }
+
+.dial-box { flex: none; display: flex; align-items: center; gap: 8px; }
+.knobs { display: flex; flex-direction: column; gap: 4px; }
+.knob { display: flex; flex-direction: column; align-items: center; }
+.knob canvas { width: 50px; height: 50px; display: block; cursor: ns-resize; touch-action: none; }
+.knob span { font: 600 10px/1.2 ui-monospace, Menlo, monospace; color: #a8a8b0; min-width: 40px; text-align: center; }
+#dial { width: 132px; height: 132px; display: block; cursor: grab; touch-action: none; }
+#dial:active { cursor: grabbing; }
+
+@container (max-width: 1020px) { .freq { --dh: 34px; } .meter-box { width: 180px; } }
+@container (max-width: 900px) { .steps { display: none; } }
+@container (max-width: 700px) { .meter-box { display: none; } .freq { --dh: 30px; } }
+@container (max-width: 470px) { .dial-box { display: none; } .info .tag:not(.flag):not(#modeBadge) { display: none; } }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="tb-left">
+      <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
+      <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
+    </div>
+    <div class="brand"><b>Pluto Nano</b> <span>Software Defined Radio</span></div>
+    <div class="tb-right">
+      <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
+      <button id="btnConnect" class="tb-btn primary">Connect</button>
+    </div>
+  </header>
+
+  <section id="panel" data-theme="cyan">
+    <div class="lcd meter-box">
+      <canvas id="smeter" title="クリックで針 / バー表示を切り替え"></canvas>
+      <div class="meter-read"><span id="meterS">S-</span><span id="meterText">--- dBm</span></div>
+    </div>
+    <div class="center">
+      <div class="lcd freq-box">
+        <div class="info">
+          <button id="modeBadge" class="tag" title="クリックでモード切り替え">WFM</button>
+          <span id="stereoInd" class="tag flag" title="FM stereo pilot">ST</span>
+          <span id="bwBadge" class="tag" title="受信帯域幅">BW</span>
+          <span id="tsBadge" class="tag" title="同調ステップ">TS</span>
+          <span id="agcBadge" class="tag" title="ゲイン制御">AGC</span>
+          <span id="gainBadge" class="tag" title="RF ゲイン">G</span>
+          <span id="srBadge" class="tag" title="サンプルレート">SR</span>
+          <span id="sqlBadge" class="tag flag" title="スケルチ">SQL</span>
+          <span class="spacer"></span>
+          <button id="themeBtn" class="tag" title="配色を切り替え">&#9680;</button>
+          <span id="clock" class="tag"></span>
+        </div>
+        <div class="freq-row">
+          <div id="freq" class="freq" title="桁をホイール / クリックで変更、ダブルクリックで直接入力"></div>
+          <input id="freqInput" class="freq-input" type="text" spellcheck="false" hidden>
+          <span class="freq-unit">MHz</span>
+          <div class="modes" id="modes">
+            <button data-mode="NFM">NFM</button><button data-mode="WFM">WFM</button><button data-mode="AM">AM</button>
+            <button data-mode="USB">USB</button><button data-mode="LSB">LSB</button><button data-mode="CW">CW</button>
+          </div>
+        </div>
+      </div>
+      <div id="bands" class="bands"></div>
+    </div>
+    <div id="steps" class="steps" title="同調ステップ"></div>
+    <div class="dial-box">
+      <canvas id="dial" title="ドラッグで回す（勢いよく回すと惰性で回転）、ホイールでも操作"></canvas>
+      <div class="knobs">
+        <div class="knob"><canvas id="afKnob" title="音量（上下ドラッグ / ホイール）"></canvas><span id="afLbl">AF</span></div>
+        <div class="knob"><canvas id="sqlKnob" title="スケルチ（上下ドラッグ / ホイール、左いっぱいで OFF）"></canvas><span id="sqlLbl">SQL</span></div>
+      </div>
+    </div>
+  </section>
+
+  <aside id="sidebar">
+    <details open>
+      <summary>Source</summary>
+      <div class="row"><span class="lbl">Device</span><span id="devName" class="val">—</span></div>
+      <div class="row"><span class="lbl">Sample rate</span>
+        <select id="sampleRate"></select></div>
+      <div class="row"><span class="lbl">RF bandwidth</span>
+        <select id="rfBw"></select></div>
+      <div class="row"><span class="lbl">Gain mode</span>
+        <select id="gainMode">
+          <option value="manual">Manual</option>
+          <option value="slow_attack">AGC slow</option>
+          <option value="fast_attack">AGC fast</option>
+          <option value="hybrid">AGC hybrid</option>
+        </select></div>
+      <div class="row"><span class="lbl">Gain</span>
+        <input id="gain" type="range" min="-3" max="71" step="1"><span id="gainVal" class="num">0 dB</span></div>
+      <div class="row" title="水晶の誤差を補正します。表示が本来の周波数より低く見えるときはプラス、高く見えるときはマイナス。ずれ(Hz) ÷ 周波数(MHz) = ppm">
+        <span class="lbl">Freq. corr.</span>
+        <input id="ppm" type="number" min="-100" max="100" step="0.1"><span class="unit">ppm</span></div>
+      <div class="row" title="S メーターの dBm 換算の補正値。既知のレベルの信号を入れて表示が合うように調整します">
+        <span class="lbl">S-meter cal</span>
+        <input id="meterCal" type="number" min="-60" max="60" step="0.5"><span class="unit">dB</span></div>
+      <div class="row"><span class="lbl">LO</span><span id="loVal" class="val mono">—</span></div>
+      <div class="row"><span class="lbl">RSSI</span><span id="rssiVal" class="val mono">—</span></div>
+    </details>
+
+    <details open>
+      <summary>Radio</summary>
+      <div class="row"><span class="lbl">Bandwidth</span>
+        <input id="bandwidth" type="number" min="0.5" step="0.5"><span class="unit">kHz</span></div>
+      <div class="row"><span class="lbl">Snap</span>
+        <select id="snap">
+          <option value="1">1 Hz</option><option value="10">10 Hz</option><option value="100">100 Hz</option>
+          <option value="1000">1 kHz</option><option value="5000">5 kHz</option><option value="6250">6.25 kHz</option>
+          <option value="8330">8.33 kHz</option><option value="9000">9 kHz</option><option value="10000">10 kHz</option>
+          <option value="12500">12.5 kHz</option><option value="20000">20 kHz</option><option value="25000">25 kHz</option><option value="100000">100 kHz</option>
+        </select></div>
+      <div class="row"><span class="lbl">De-emphasis</span>
+        <select id="deemph">
+          <option value="0">None</option><option value="50">50 µs</option><option value="75">75 µs</option>
+        </select></div>
+      <div class="row"><label class="lbl chk"><input id="stereo" type="checkbox"> Stereo</label>
+        <span class="hint">WFM のみ</span></div>
+      <div class="row"><label class="lbl chk"><input id="squelchOn" type="checkbox"> Squelch</label>
+        <input id="squelch" type="range" min="-120" max="0" step="1"><span id="squelchVal" class="num">-60</span></div>
+    </details>
+
+    <details open>
+      <summary>Display</summary>
+      <div class="row"><span class="lbl">FFT size</span>
+        <select id="fftSize">
+          <option>1024</option><option>2048</option><option>4096</option><option>8192</option><option>16384</option><option>32768</option>
+        </select></div>
+      <div class="row"><span class="lbl">FFT rate</span>
+        <input id="fps" type="range" min="5" max="60" step="1"><span id="fpsVal" class="num">30</span></div>
+      <div class="row"><span class="lbl">Window</span>
+        <select id="window">
+          <option value="bh">Blackman-Harris</option><option value="hann">Hann</option><option value="rect">Rectangular</option>
+        </select></div>
+      <div class="row"><span class="lbl">Smoothing</span>
+        <input id="smoothing" type="range" min="0" max="0.95" step="0.05"><span id="smoothingVal" class="num">0.8</span></div>
+      <div class="row"><span class="lbl">Colormap</span>
+        <select id="colormap">
+          <option value="classic">Classic</option><option value="turbo">Turbo</option><option value="gray">Grayscale</option>
+        </select></div>
+      <div class="row"><span class="lbl">Max</span>
+        <input id="dbMax" type="range" min="-140" max="10" step="1"><span id="dbMaxVal" class="num">0</span></div>
+      <div class="row"><span class="lbl">Min</span>
+        <input id="dbMin" type="range" min="-160" max="-10" step="1"><span id="dbMinVal" class="num">0</span></div>
+    </details>
+
+    <details open>
+      <summary>Wideband scan</summary>
+      <div class="row"><span class="lbl">Preset</span>
+        <select id="scanPreset">
+          <option value="">Custom</option>
+          <option value="76,95">FM broadcast 76–95 MHz</option>
+          <option value="108,137">Airband 108–137 MHz</option>
+          <option value="144,146">2 m band 144–146 MHz</option>
+          <option value="420,440">ISM / 70 cm 420–440 MHz</option>
+          <option value="470,710">Digital TV 470–710 MHz</option>
+          <option value="920,930">920 MHz IoT</option>
+          <option value="2400,2500">2.4 GHz ISM</option>
+          <option value="5150,5850">5 GHz Wi-Fi</option>
+          <option value="70,6000">Full range 70–6000 MHz</option>
+        </select></div>
+      <div class="row"><span class="lbl">Start</span>
+        <input id="scanStart" type="number" min="70" max="6000" step="1"><span class="unit">MHz</span></div>
+      <div class="row"><span class="lbl">Stop</span>
+        <input id="scanStop" type="number" min="70" max="6000" step="1"><span class="unit">MHz</span></div>
+      <div class="row"><span class="lbl">Gain</span>
+        <input id="scanGain" type="range" min="-3" max="71" step="1"><span id="scanGainVal" class="num">0 dB</span></div>
+      <div class="row"><button id="btnScan" class="wide" disabled>Start scan</button></div>
+      <div class="row"><span id="scanInfo" class="hint">Sweeps at 20 MSPS, 16 MHz per step. Click the result to tune there.</span></div>
+    </details>
+  </aside>
+
+  <main id="view">
+    <div id="plots">
+      <canvas id="spec"></canvas>
+      <div id="splitter" title="Drag to resize"></div>
+      <div id="wfWrap">
+        <canvas id="wf"></canvas>
+        <canvas id="wfOverlay"></canvas>
+      </div>
+    </div>
+    <div id="rightbar">
+      <span class="rb-lbl">Zoom</span>
+      <input id="zoom" type="range" min="0" max="1" step="0.001" class="vslider" title="Zoom">
+    </div>
+  </main>
+</div>
+
+<div id="toast" hidden></div>
+
+<div id="intro" hidden>
+  <div class="intro-box">
+    <h1>Pluto Nano SDR</h1>
+    <p>ADALM-Pluto を USB で接続し、<b>Connect</b> を押してデバイスを選択してください。</p>
+    <ul>
+      <li>Chrome / Edge が必要です（WebUSB）。</li>
+      <li>スペクトラム / ウォーターフォールをクリックで同調、ドラッグで VFO 移動、ホイールでステップ同調、Ctrl+ホイールでズーム。</li>
+      <li>周波数表示の桁をホイール / クリックで変更、ダブルクリックで直接入力（MHz）。</li>
+    </ul>
+    <button id="introClose" class="primary">OK</button>
+  </div>
+</div>
+
+<script type="text/plain" id="worker-src">// DSP building blocks: FFT, windows, FIR design, decimators, resampler and
+// demodulators. Plain Float32Array code so it runs in a worker or in Node.
+
+(function (root) {
+  'use strict';
+
+  const TAU = 2 * Math.PI;
+
+  class FFT {
+    constructor(n) {
+      this.n = n;
+      this.cos = new Float32Array(n / 2);
+      this.sin = new Float32Array(n / 2);
+      for (let k = 0; k < n / 2; k++) {
+        this.cos[k] = Math.cos(TAU * k / n);
+        this.sin[k] = Math.sin(TAU * k / n);
+      }
+      this.rev = new Uint32Array(n);
+      const bits = Math.log2(n);
+      for (let i = 0; i < n; i++) {
+        let r = 0;
+        for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+        this.rev[i] = r;
+      }
+    }
+
+    // In-place forward transform.
+    transform(re, im) {
+      const n = this.n, rev = this.rev, cs = this.cos, sn = this.sin;
+      for (let i = 0; i < n; i++) {
+        const j = rev[i];
+        if (j > i) {
+          let t = re[i]; re[i] = re[j]; re[j] = t;
+          t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+      }
+      for (let size = 2; size <= n; size <<= 1) {
+        const half = size >> 1, step = n / size;
+        for (let i = 0; i < n; i += size) {
+          for (let j = i, k = 0; j < i + half; j++, k += step) {
+            const l = j + half, c = cs[k], s = sn[k];
+            const tr = re[l] * c + im[l] * s;
+            const ti = im[l] * c - re[l] * s;
+            re[l] = re[j] - tr; im[l] = im[j] - ti;
+            re[j] += tr; im[j] += ti;
+          }
+        }
+      }
+    }
+  }
+
+  function makeWindow(type, n) {
+    const w = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = TAU * i / (n - 1);
+      if (type === 'hann') w[i] = 0.5 - 0.5 * Math.cos(x);
+      else if (type === 'rect') w[i] = 1;
+      else w[i] = 0.35875 - 0.48829 * Math.cos(x) + 0.14128 * Math.cos(2 * x) - 0.01168 * Math.cos(3 * x);
+    }
+    return w;
+  }
+
+  // Windowed-sinc lowpass. cutoff is in Hz at rate fs. Odd length, unity DC gain.
+  function lowpass(fs, cutoff, transition, window = 'blackman') {
+    const k = window === 'blackman' ? 5.5 : 3.3;
+    let n = Math.ceil(k * fs / transition) | 1;
+    n = Math.max(15, Math.min(n, 4095)) | 1;
+    const fc = cutoff / fs, m = (n - 1) / 2;
+    const h = new Float32Array(n);
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i - m;
+      const sinc = t === 0 ? 2 * fc : Math.sin(TAU * fc * t) / (Math.PI * t);
+      const x = TAU * i / (n - 1);
+      const w = window === 'blackman'
+        ? 0.42 - 0.5 * Math.cos(x) + 0.08 * Math.cos(2 * x)
+        : 0.54 - 0.46 * Math.cos(x);
+      h[i] = sinc * w;
+      sum += h[i];
+    }
+    for (let i = 0; i < n; i++) h[i] /= sum;
+    return h;
+  }
+
+  // Complex FIR filter that only computes every D-th output.
+  class CDecim {
+    constructor(taps, D) {
+      this.h = taps; this.D = D; this.L = taps.length;
+      this.hr = new Float32Array(this.L - 1);
+      this.hi = new Float32Array(this.L - 1);
+      this.br = new Float32Array(0); this.bi = new Float32Array(0);
+      this.pos = 0;
+    }
+
+    process(re, im, n, outRe, outIm) {
+      const L = this.L, D = this.D, h = this.h, tot = L - 1 + n;
+      if (this.br.length < tot) { this.br = new Float32Array(tot); this.bi = new Float32Array(tot); }
+      const br = this.br, bi = this.bi;
+      br.set(this.hr); bi.set(this.hi);
+      br.set(re.subarray(0, n), L - 1); bi.set(im.subarray(0, n), L - 1);
+      let k = 0, p = this.pos;
+      for (; p + L <= tot; p += D) {
+        let sr = 0, si = 0;
+        for (let j = 0; j < L; j++) { const c = h[j]; sr += c * br[p + j]; si += c * bi[p + j]; }
+        outRe[k] = sr; outIm[k++] = si;
+      }
+      this.pos = p - n;
+      this.hr.set(br.subarray(n, tot)); this.hi.set(bi.subarray(n, tot));
+      return k;
+    }
+  }
+
+  class RDecim {
+    constructor(taps, D) {
+      this.h = taps; this.D = D; this.L = taps.length;
+      this.hist = new Float32Array(this.L - 1);
+      this.buf = new Float32Array(0);
+      this.pos = 0;
+    }
+
+    process(x, n, out) {
+      const L = this.L, D = this.D, h = this.h, tot = L - 1 + n;
+      if (this.buf.length < tot) this.buf = new Float32Array(tot);
+      const b = this.buf;
+      b.set(this.hist); b.set(x.subarray(0, n), L - 1);
+      let k = 0, p = this.pos;
+      for (; p + L <= tot; p += D) {
+        let s = 0;
+        for (let j = 0; j < L; j++) s += h[j] * b[p + j];
+        out[k++] = s;
+      }
+      this.pos = p - n;
+      this.hist.set(b.subarray(n, tot));
+      return k;
+    }
+  }
+
+  // Catmull-Rom fractional resampler; ratio = input rate / output rate.
+  class Resampler {
+    constructor(ratio) {
+      this.ratio = ratio;
+      this.hist = new Float32Array(3);
+      this.buf = new Float32Array(0);
+      this.t = 1;
+    }
+
+    process(x, n, out) {
+      const len = n + 3;
+      if (this.buf.length < len) this.buf = new Float32Array(len);
+      const c = this.buf;
+      c.set(this.hist); c.set(x.subarray(0, n), 3);
+      let k = 0, t = this.t;
+      const r = this.ratio;
+      while (t < len - 2) {
+        const i = t | 0, f = t - i;
+        const y0 = c[i - 1], y1 = c[i], y2 = c[i + 1], y3 = c[i + 2];
+        const a = -0.5 * y0 + 1.5 * y1 - 1.5 * y2 + 0.5 * y3;
+        const b = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3;
+        const d = 0.5 * (y2 - y0);
+        out[k++] = ((a * f + b) * f + d) * f + y1;
+        t += r;
+      }
+      this.t = t - n;
+      this.hist.set(c.subarray(n, n + 3));
+      return k;
+    }
+  }
+
+  // Numerically controlled oscillator mixing by exp(-j*2*pi*f/fs*n).
+  class Mixer {
+    constructor() { this.pr = 1; this.pi = 0; this.setFreq(0, 1); }
+    setFreq(f, fs) {
+      const w = -TAU * f / fs;
+      this.cr = Math.cos(w); this.ci = Math.sin(w);
+    }
+    process(re, im, n, outRe, outIm) {
+      let pr = this.pr, pi = this.pi;
+      const cr = this.cr, ci = this.ci;
+      for (let i = 0; i < n; i++) {
+        const xr = re[i], xi = im[i];
+        outRe[i] = xr * pr - xi * pi;
+        outIm[i] = xr * pi + xi * pr;
+        const t = pr * cr - pi * ci;
+        pi = pr * ci + pi * cr;
+        pr = t;
+      }
+      const g = 1 / Math.hypot(pr, pi);
+      this.pr = pr * g; this.pi = pi * g;
+    }
+  }
+
+  // Peak-tracking AGC for AM/SSB audio.
+  class AGC {
+    constructor(rate) {
+      this.env = 1e-4;
+      this.decay = Math.exp(-1 / (rate * 0.5));
+      this.attack = 1 - Math.exp(-1 / (rate * 0.002));
+    }
+    process(x, n) {
+      let env = this.env;
+      const decay = this.decay, attack = this.attack;
+      for (let i = 0; i < n; i++) {
+        const a = Math.abs(x[i]);
+        env = a > env ? env + attack * (a - env) : env * decay;
+        if (env < 1e-5) env = 1e-5;
+        x[i] = x[i] * (0.25 / env);
+      }
+      this.env = env;
+    }
+  }
+
+  // FM stereo pilot PLL. Tracks the 19 kHz pilot in the MPX signal and
+  // reports whether a pilot is present.
+  class PilotPLL {
+    constructor(rate) {
+      this.w0 = TAU * 19000 / rate;
+      this.wMax = TAU * 50 / rate;
+      const wn = TAU * 20, zeta = 0.707, kd = 0.5;
+      this.kp = 2 * zeta * wn / (kd * rate);
+      this.ki = wn * wn / (kd * rate * rate);
+      this.lp = 1 - Math.exp(-1 / (rate * 0.05));
+      this.theta = 0; this.dw = 0; this.i = 0; this.q = 0;
+      this.locked = false;
+    }
+  }
+
+  // Complete receive chain: IQ at fs -> interleaved stereo audio at audioRate.
+  // mode: WFM | NFM | AM | USB | LSB | CW
+  // CW: the carrier at the VFO is heard as a CW_PITCH tone.
+  const CW_PITCH = 700;
+  class Receiver {
+    constructor(opts) {
+      this.audioRate = opts.audioRate || 48000;
+      this.mixer = new Mixer();
+      this.configure(opts);
+    }
+
+    configure(o) {
+      Object.assign(this, {
+        fs: o.fs ?? this.fs,
+        offset: o.offset ?? this.offset ?? 0,
+        mode: o.mode ?? this.mode ?? 'WFM',
+        bandwidth: o.bandwidth ?? this.bandwidth ?? 200e3,
+        deemph: o.deemph ?? this.deemph ?? 50e-6,
+        squelch: o.squelch ?? this.squelch ?? null,
+        stereo: o.stereo ?? this.stereo ?? true,
+      });
+      const fs = this.fs, bw = this.bandwidth, mode = this.mode;
+      const ssb = mode === 'USB' || mode === 'LSB', cw = mode === 'CW';
+
+      // WFM keeps the whole MPX baseband (stereo subcarrier up to 53 kHz).
+      // CW uses a low IF so its narrow filter stays short.
+      const ifTarget = Math.min(fs, cw ? 12e3 : Math.max(1.25 * bw, mode === 'WFM' ? 150e3 : 50e3));
+      const D1 = Math.max(1, Math.floor(fs / (4 * ifTarget)));
+      const fs1 = fs / D1;
+      const D2 = Math.max(1, Math.floor(fs1 / ifTarget));
+      this.ifRate = fs1 / D2;
+
+      // Stage 1 only has to keep aliases out of the final channel.
+      this.stage1 = D1 > 1
+        ? new CDecim(lowpass(fs, ifTarget / 2, Math.max(fs1 - ifTarget, ifTarget * 0.5), 'blackman'), D1)
+        : null;
+      const half = bw / 2;
+      this.stage2 = new CDecim(lowpass(fs1, half, cw ? Math.max(bw * 0.3, 100) : Math.max(half * 0.2, 500), 'hamming'), D2);
+
+      // SSB: centre the sideband before filtering, shift back after.
+      this.ssbShift = mode === 'USB' ? bw / 2 : mode === 'LSB' ? -bw / 2 : 0;
+      this.mixer.setFreq(this.offset + this.ssbShift, fs);
+      this.bfo = new Mixer();
+      this.bfo.setFreq(cw ? -CW_PITCH : -this.ssbShift, this.ifRate);
+
+      const audioCut = Math.min(
+        mode === 'WFM' ? 15e3 : mode === 'NFM' ? Math.min(bw / 2, 8e3) : ssb ? bw : cw ? CW_PITCH + bw / 2 + 300 : bw / 2,
+        this.audioRate * 0.45);
+      const Da = Math.max(1, Math.floor(this.ifRate / this.audioRate));
+      // WFM: the filter must also reject the 19 kHz pilot.
+      const audioTaps = lowpass(this.ifRate, audioCut, mode === 'WFM' ? 3000 : Math.max(audioCut * 0.25, 500), 'hamming');
+      this.audioDecim = new RDecim(audioTaps, Da);
+      this.diffDecim = new RDecim(audioTaps, Da);
+      this.aRate = this.ifRate / Da;
+      this.baseRatio = this.aRate / this.audioRate;
+      this.resampler = new Resampler(this.baseRatio);
+      this.resamplerR = new Resampler(this.baseRatio);
+      this.pll = mode === 'WFM' ? new PilotPLL(this.ifRate) : null;
+      this.blend = 0;
+
+      this.fmGain = this.ifRate / (TAU * (mode === 'WFM' ? 75e3 : Math.max(bw / 2 - 1500, 2500)));
+      // De-emphasis runs after decimation, separately on L and R.
+      this.deAlpha = this.deemph > 0 && (mode === 'WFM' || mode === 'NFM')
+        ? 1 - Math.exp(-1 / (this.aRate * this.deemph)) : 0;
+      this.deL = this.deL || 0; this.deR = this.deR || 0;
+      this.dcAlpha = 1 - Math.exp(-TAU * 30 / this.ifRate);
+      this.dcState = 0;
+      this.prevR = this.prevR || 0; this.prevI = this.prevI || 0;
+      this.agc = new AGC(this.aRate);
+      this.levelDb = -200;
+    }
+
+    setOffset(offset) {
+      this.offset = offset;
+      this.mixer.setFreq(offset + this.ssbShift, this.fs);
+    }
+
+    setRateCorrection(c) { this.resampler.ratio = this.resamplerR.ratio = this.baseRatio * (1 + c); }
+
+    get stereoLocked() { return !!(this.pll && this.pll.locked && this.stereo); }
+
+    ensure(n) {
+      if (!this.wr || this.wr.length < n) {
+        this.wr = new Float32Array(n); this.wi = new Float32Array(n);
+        this.xr = new Float32Array(n); this.xi = new Float32Array(n);
+        this.demod = new Float32Array(n); this.diff = new Float32Array(n);
+        this.aud = new Float32Array(n); this.audR = new Float32Array(n);
+        this.outL = new Float32Array(n * 2 + 1024); this.outR = new Float32Array(n * 2 + 1024);
+      }
+    }
+
+    // iq: Float32 re/im arrays of length n. Returns Float32Array of audio.
+    process(re, im, n) {
+      this.ensure(n);
+      this.mixer.process(re, im, n, this.wr, this.wi);
+      let m = n, sr = this.wr, si = this.wi;
+      if (this.stage1) { m = this.stage1.process(sr, si, m, this.xr, this.xi); sr = this.xr; si = this.xi; }
+      const cr = this.wr, ci = this.wi; // reuse as stage-2 output
+      m = this.stage2.process(sr, si, m, cr, ci);
+
+      let pwr = 0;
+      for (let i = 0; i < m; i++) pwr += cr[i] * cr[i] + ci[i] * ci[i];
+      this.levelDb = 10 * Math.log10(pwr / Math.max(m, 1) + 1e-20);
+
+      const d = this.demod, mode = this.mode;
+      if (mode === 'WFM' || mode === 'NFM') {
+        let pr = this.prevR, pi = this.prevI;
+        const g = this.fmGain;
+        for (let i = 0; i < m; i++) {
+          const r = cr[i], q = ci[i];
+          d[i] = Math.atan2(q * pr - r * pi, r * pr + q * pi) * g;
+          pr = r; pi = q;
+        }
+        this.prevR = pr; this.prevI = pi;
+        if (this.pll) this.pilot(d, m);
+      } else if (mode === 'AM') {
+        let dc = this.dcState;
+        const a = this.dcAlpha;
+        for (let i = 0; i < m; i++) {
+          const e = Math.sqrt(cr[i] * cr[i] + ci[i] * ci[i]);
+          dc += a * (e - dc);
+          d[i] = e - dc;
+        }
+        this.dcState = dc;
+      } else {
+        this.bfo.process(cr, ci, m, this.xr, this.xi);
+        for (let i = 0; i < m; i++) d[i] = this.xr[i];
+      }
+
+      const L = this.aud, R = this.audR;
+      let k = this.audioDecim.process(d, m, L);
+      if (this.pll) {
+        // L = (L+R) + (L-R), R = (L+R) - (L-R); fade between mono and stereo.
+        this.diffDecim.process(this.diff, m, R);
+        const target = this.stereoLocked ? 1 : 0;
+        let g = this.blend;
+        const step = 1 / (this.aRate * 0.2);
+        for (let i = 0; i < k; i++) {
+          g += g < target ? Math.min(step, target - g) : -Math.min(step, g - target);
+          const sum = L[i], dif = R[i] * g;
+          L[i] = sum + dif; R[i] = sum - dif;
+        }
+        this.blend = g;
+      } else {
+        if (mode !== 'NFM' && mode !== 'WFM') this.agc.process(L, k);
+        R.set(L.subarray(0, k));
+      }
+      if (this.deAlpha) {
+        const a = this.deAlpha;
+        let sl = this.deL, sr = this.deR;
+        for (let i = 0; i < k; i++) { sl += a * (L[i] - sl); L[i] = sl; sr += a * (R[i] - sr); R[i] = sr; }
+        this.deL = sl; this.deR = sr;
+      }
+      const nl = this.resampler.process(L, k, this.outL);
+      const nr = this.resamplerR.process(R, k, this.outR);
+      const nf = Math.min(nl, nr);
+      const out = new Float32Array(nf * 2);
+      if (!(this.squelch !== null && this.levelDb < this.squelch)) {
+        const ol = this.outL, or = this.outR;
+        for (let i = 0; i < nf; i++) { out[2 * i] = ol[i]; out[2 * i + 1] = or[i]; }
+      }
+      return out;
+    }
+
+    // Runs the pilot PLL over the MPX signal and fills this.diff with the
+    // L-R channel demodulated by the regenerated 38 kHz subcarrier.
+    pilot(d, m) {
+      const p = this.pll, diff = this.diff;
+      let th = p.theta, dw = p.dw, pi = p.i, pq = p.q;
+      const w0 = p.w0, kp = p.kp, ki = p.ki, lp = p.lp, wMax = p.wMax;
+      for (let i = 0; i < m; i++) {
+        const x = d[i], c = Math.cos(th), s = Math.sin(th);
+        // Locked: cos(th) follows the pilot sin(wt), so the subcarrier
+        // sin(2wt) = -sin(2*th).
+        diff[i] = -4 * x * s * c;
+        pi += lp * (2 * x * c - pi);
+        pq += lp * (-2 * x * s - pq);
+        const amp = Math.max(Math.hypot(pi, pq), 0.005);
+        const e = -x * s / amp;
+        dw += ki * e;
+        if (dw > wMax) dw = wMax; else if (dw < -wMax) dw = -wMax;
+        th += w0 + dw + kp * e;
+        if (th > TAU) th -= TAU;
+      }
+      p.theta = th; p.dw = dw; p.i = pi; p.q = pq;
+      // Pilot is nominally 10% of full deviation; require it in phase.
+      p.locked = p.locked ? pi > 0.025 && pi > 2 * Math.abs(pq) : pi > 0.04 && pi > 4 * Math.abs(pq);
+    }
+  }
+
+  // Averaged power spectrum in dBFS, FFT-shifted (DC in the middle).
+  class Spectrum {
+    constructor(n, window) {
+      this.n = n;
+      this.fft = new FFT(n);
+      this.win = makeWindow(window, n);
+      let s = 0;
+      for (let i = 0; i < n; i++) s += this.win[i];
+      this.norm = 1 / (s * s);
+      this.re = new Float32Array(n); this.im = new Float32Array(n);
+      this.acc = new Float32Array(n);
+      this.frames = 0;
+    }
+
+    // Adds one frame from interleaved Int16 IQ starting at sample index start.
+    addFrame(iq, start) {
+      const n = this.n, w = this.win, re = this.re, im = this.im;
+      for (let i = 0, j = start * 2; i < n; i++, j += 2) {
+        re[i] = iq[j] * w[i] / 2048;
+        im[i] = iq[j + 1] * w[i] / 2048;
+      }
+      this.fft.transform(re, im);
+      const acc = this.acc;
+      for (let i = 0; i < n; i++) acc[i] += re[i] * re[i] + im[i] * im[i];
+      this.frames++;
+    }
+
+    take() {
+      const n = this.n, h = n >> 1, out = new Float32Array(n);
+      const g = this.norm / Math.max(this.frames, 1);
+      for (let i = 0; i < n; i++) {
+        out[(i + h) % n] = 10 * Math.log10(this.acc[i] * g + 1e-20);
+      }
+      this.acc.fill(0);
+      this.frames = 0;
+      return out;
+    }
+  }
+
+  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Spectrum };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.DSP = api;
+})(typeof self !== 'undefined' ? self : globalThis);
+
+// DSP worker: turns raw IQ blocks into spectrum frames and audio.
+// Loaded from a Blob together with dsp.js, so DSP is a global here.
+
+'use strict';
+
+const cfg = {
+  fs: 2.4e6, lo: 100e6, vfo: 100e6, mode: 'WFM', bandwidth: 200e3, deemph: 50e-6,
+  squelch: null, stereo: true, fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8,
+  audioRate: 48000, audio: false,
+};
+
+let rx = null;
+let spec = null;
+let smooth = null;
+let audioPort = null;
+let re = new Float32Array(0), im = new Float32Array(0);
+let total = 0, nextEmit = 0, phase = 0;
+let levelAt = 0;
+let sweepSpec = null;
+
+function rebuildReceiver() {
+  rx = new DSP.Receiver({
+    fs: cfg.fs, offset: cfg.vfo - cfg.lo, mode: cfg.mode, bandwidth: cfg.bandwidth,
+    deemph: cfg.deemph, squelch: cfg.squelch, stereo: cfg.stereo, audioRate: cfg.audioRate,
+  });
+}
+
+function rebuildSpectrum() {
+  spec = new DSP.Spectrum(cfg.fftSize, cfg.window);
+  smooth = null;
+  phase = 0;
+}
+
+function configure(c) {
+  const prev = Object.assign({}, cfg);
+  Object.assign(cfg, c);
+  const changed = (...keys) => keys.some((k) => k in c && c[k] !== prev[k]);
+  if (!rx || changed('fs', 'mode', 'bandwidth', 'deemph', 'audioRate')) rebuildReceiver();
+  else if (changed('vfo', 'lo')) rx.setOffset(cfg.vfo - cfg.lo);
+  if (rx && 'squelch' in c) rx.squelch = cfg.squelch;
+  if (rx && 'stereo' in c) rx.stereo = cfg.stereo;
+  if (!spec || changed('fftSize', 'window')) rebuildSpectrum();
+  if (changed('fs', 'fps')) { nextEmit = total; }
+}
+
+function emitSpectrum(lo) {
+  const db = spec.take();
+  const a = Math.min(Math.max(cfg.smoothing, 0), 0.98);
+  if (smooth && smooth.length === db.length && smooth.lo === lo && a > 0) {
+    for (let i = 0; i < db.length; i++) smooth[i] = smooth[i] * a + db[i] * (1 - a);
+  } else {
+    smooth = Float32Array.from(db);
+    smooth.lo = lo;
+  }
+  const out = Float32Array.from(smooth);
+  postMessage({ type: 'fft', db: out, f0: lo - cfg.fs / 2, binHz: cfg.fs / cfg.fftSize }, [out.buffer]);
+}
+
+function handleIQ(iq, lo) {
+  const n = iq.length >> 1;
+  if (!n) return;
+
+  // Spectrum: a few frames per output, spread over the block.
+  const N = spec.n;
+  const emitEvery = cfg.fs / cfg.fps;
+  const interval = Math.max(N, Math.floor(emitEvery / 4));
+  let p = phase;
+  for (; p + N <= n; p += interval) {
+    spec.addFrame(iq, p);
+    if (total + p + N >= nextEmit) {
+      emitSpectrum(lo);
+      nextEmit += emitEvery;
+      if (nextEmit < total + p) nextEmit = total + p + emitEvery;
+    }
+  }
+  phase = Math.max(0, p - n);
+  total += n;
+
+  // Audio.
+  if (cfg.audio && audioPort) {
+    if (rx.offset !== cfg.vfo - lo) rx.setOffset(cfg.vfo - lo);
+    if (re.length < n) { re = new Float32Array(n); im = new Float32Array(n); }
+    for (let i = 0, j = 0; i < n; i++, j += 2) {
+      re[i] = iq[j] / 2048;
+      im[i] = iq[j + 1] / 2048;
+    }
+    const audio = rx.process(re, im, n);
+    audioPort.postMessage(audio, [audio.buffer]);
+  }
+
+  if (total - levelAt >= cfg.fs / 15) {
+    levelAt = total;
+    postMessage({ type: 'level', db: rx.levelDb, stereo: rx.stereoLocked });
+  }
+}
+
+function handleSweep(iq, lo, id) {
+  const N = 1024;
+  if (!sweepSpec) sweepSpec = new DSP.Spectrum(N, 'bh');
+  const frames = Math.floor((iq.length >> 1) / N);
+  for (let f = 0; f < frames; f++) sweepSpec.addFrame(iq, f * N);
+  const db = sweepSpec.take();
+  postMessage({ type: 'sweep', db, lo, id }, [db.buffer]);
+}
+
+self.onmessage = (e) => {
+  const m = e.data;
+  switch (m.type) {
+    case 'config':
+      configure(m.cfg);
+      break;
+    case 'audioPort':
+      audioPort = m.port;
+      audioPort.onmessage = (ev) => {
+        const { fill, target } = ev.data;
+        if (!rx || !target) return;
+        const err = (fill - target) / target;
+        rx.setRateCorrection(Math.max(-0.005, Math.min(0.005, err * 0.002)));
+      };
+      break;
+    case 'iq':
+      handleIQ(m.data, m.lo);
+      break;
+    case 'sweep':
+      handleSweep(m.data, m.lo, m.id);
+      break;
+  }
+};
+
+configure({});
+</script>
+<script type="text/plain" id="worklet-src">// Audio output: a ring buffer of interleaved stereo frames fed directly by
+// the DSP worker over a MessagePort. Reports its fill level (in frames) so
+// the worker can trim its resampler.
+
+class PlutoPlayer extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.cap = Math.round(sampleRate * 2);
+    this.buf = new Float32Array(this.cap * 2);
+    this.r = 0; this.w = 0; this.fill = 0;
+    this.target = Math.round(sampleRate * 0.12);
+    this.primed = false;
+    this.tick = 0;
+    this.src = null;
+    this.port.onmessage = (e) => {
+      if (e.data && e.data.port) {
+        this.src = e.data.port;
+        this.src.onmessage = (ev) => this.push(ev.data);
+      } else if (e.data && e.data.reset) {
+        this.r = this.w = this.fill = 0;
+        this.primed = false;
+      }
+    };
+  }
+
+  push(a) {
+    const cap = this.cap, buf = this.buf, n = a.length >> 1;
+    for (let i = 0; i < n; i++) {
+      if (this.fill >= cap) { this.r = (this.r + 1) % cap; this.fill--; }
+      buf[2 * this.w] = a[2 * i];
+      buf[2 * this.w + 1] = a[2 * i + 1];
+      this.w = (this.w + 1) % cap;
+      this.fill++;
+    }
+  }
+
+  process(inputs, outputs) {
+    const out = outputs[0];
+    const L = out[0].length;
+    const oL = out[0], oR = out[1] || out[0];
+    if (!this.primed && this.fill >= this.target) this.primed = true;
+    if (this.primed && this.fill >= L) {
+      const buf = this.buf, cap = this.cap;
+      let r = this.r;
+      for (let i = 0; i < L; i++) {
+        oL[i] = buf[2 * r];
+        oR[i] = buf[2 * r + 1];
+        r = r + 1 === cap ? 0 : r + 1;
+      }
+      this.r = r;
+      this.fill -= L;
+    } else {
+      if (this.primed) this.primed = false;
+      for (let c = 0; c < out.length; c++) out[c].fill(0);
+    }
+    if (this.src && ++this.tick % 16 === 0) this.src.postMessage({ fill: this.fill, target: this.target });
+    return true;
+  }
+}
+
+registerProcessor('pluto-player', PlutoPlayer);
+</script>
+<script>// ADALM-Pluto driver over WebUSB.
+//
+// Speaks the IIOD text protocol that libiio's USB backend uses: the device
+// exposes a vendor interface named "IIO" with pairs of bulk endpoints
+// ("pipes"). Pipe 0 carries context/attribute commands, pipe 1 streams RX.
+// Works with navigator.usb in the browser and node-usb's WebUSB in Node.
+
+(function (root) {
+  'use strict';
+
+  const VENDOR_ID = 0x0456;
+  const PRODUCT_ID = 0xb673;
+
+  const CMD_RESET_PIPES = 0;
+  const CMD_OPEN_PIPE = 1;
+  const CMD_CLOSE_PIPE = 2;
+
+  const LINE_LEN = 1024;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+
+  // Serializes async operations on one pipe.
+  class Queue {
+    constructor() { this.tail = Promise.resolve(); }
+    run(fn) {
+      const p = this.tail.then(fn, fn);
+      this.tail = p.catch(() => {});
+      return p;
+    }
+  }
+
+  class Pipe {
+    constructor(dev, id, epIn, epOut) {
+      this.dev = dev;
+      this.id = id;
+      this.epIn = epIn;
+      this.epOut = epOut;
+      this.queue = new Queue();
+    }
+
+    // Adds the pipe and endpoint to transfer errors, which are otherwise opaque.
+    async xfer(dir, arg) {
+      const ep = dir === 'in' ? this.epIn : this.epOut;
+      try {
+        return dir === 'in' ? await this.dev.transferIn(ep, arg) : await this.dev.transferOut(ep, arg);
+      } catch (e) {
+        throw new Error(`${e.message} (pipe ${this.id}, ${dir} ep ${ep})`);
+      }
+    }
+
+    // Resets the data toggle on both ends. The pipe's endpoints are
+    // recreated on the device by OPEN_PIPE, but the host keeps its old
+    // toggle state, which Chrome on macOS reports as a transfer error.
+    async clearHalt() {
+      if (!this.dev.clearHalt) return;
+      await this.dev.clearHalt('in', this.epIn).catch(() => {});
+      await this.dev.clearHalt('out', this.epOut).catch(() => {});
+    }
+
+    async write(bytes) {
+      const r = await this.xfer('out', bytes);
+      if (r.status !== 'ok') throw new Error(`transferOut ${r.status}`);
+    }
+
+    async readLine() {
+      // The server sends each reply line as its own USB transfer.
+      for (;;) {
+        const r = await this.xfer('in', LINE_LEN);
+        if (r.status !== 'ok') throw new Error(`transferIn ${r.status}`);
+        const s = dec.decode(r.data).replace(/^\n+/, '');
+        if (s.length) return s;
+      }
+    }
+
+    async readInt() {
+      const line = await this.readLine();
+      const v = parseInt(line, 10);
+      if (Number.isNaN(v)) throw new Error(`bad reply: ${JSON.stringify(line)}`);
+      return v;
+    }
+
+    async readExact(len, out, offset = 0) {
+      const dst = out || new Uint8Array(len);
+      let got = 0;
+      while (got < len) {
+        // Request whole 512-byte packets so a full packet never overflows.
+        const want = Math.ceil((len - got) / 512) * 512;
+        const r = await this.xfer('in', want);
+        if (r.status !== 'ok') throw new Error(`transferIn ${r.status}`);
+        const chunk = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+        const n = Math.min(chunk.length, len - got);
+        dst.set(chunk.subarray(0, n), offset + got);
+        got += n;
+      }
+      return dst;
+    }
+
+    async exec(cmd) {
+      await this.write(enc.encode(cmd));
+      return this.readInt();
+    }
+  }
+
+  // Minimal parser for the PRINT context XML: device ids, names and channels.
+  function parseContext(xml) {
+    const devices = [];
+    const devRe = /<device\s+([^>]*)>([\s\S]*?)<\/device>/g;
+    const attr = (s, k) => {
+      const m = new RegExp(`\\b${k}="([^"]*)"`).exec(s);
+      return m ? m[1] : null;
+    };
+    let m;
+    while ((m = devRe.exec(xml))) {
+      const dev = { id: attr(m[1], 'id'), name: attr(m[1], 'name'), channels: [] };
+      const chnRe = /<channel\s+([^>]*?)(\/>|>([\s\S]*?)<\/channel>)/g;
+      let c;
+      while ((c = chnRe.exec(m[2]))) {
+        const body = c[3] || '';
+        const scan = /<scan-element\s+([^>]*)\/>/.exec(body);
+        let index = -1, shift = 0, format = null;
+        if (scan) {
+          index = parseInt(attr(scan[1], 'index'), 10);
+          format = attr(scan[1], 'format');
+          const sm = />>(\d+)/.exec(format || '');
+          shift = sm ? parseInt(sm[1], 10) : 0;
+        }
+        dev.channels.push({
+          id: attr(c[1], 'id'),
+          type: attr(c[1], 'type'),
+          index, shift, format,
+        });
+      }
+      // Same ordering as libiio's reorder_channels(): it defines mask bits.
+      dev.channels.sort((a, b) => {
+        if (a.index < 0 && b.index < 0) return 0;
+        if (a.index < 0) return 1;
+        if (b.index < 0) return -1;
+        return a.index - b.index || a.shift - b.shift;
+      });
+      dev.channels.forEach((ch, i) => { ch.number = i; });
+      devices.push(dev);
+    }
+    return devices;
+  }
+
+  class Pluto {
+    constructor(usbDevice) {
+      this.usb = usbDevice;
+      this.pipes = [];
+      this.devices = [];
+      this.rx = null;
+    }
+
+    static async request(usb = root.navigator && root.navigator.usb) {
+      const d = await usb.requestDevice({ filters: [{ vendorId: VENDOR_ID, productId: PRODUCT_ID }] });
+      return new Pluto(d);
+    }
+
+    static async getPaired(usb = root.navigator && root.navigator.usb) {
+      const list = await usb.getDevices();
+      const d = list.find((x) => x.vendorId === VENDOR_ID && x.productId === PRODUCT_ID);
+      return d ? new Pluto(d) : null;
+    }
+
+    async control(request, value) {
+      const r = await this.usb.controlTransferOut({
+        requestType: 'vendor', recipient: 'interface',
+        request, value, index: this.iface,
+      });
+      if (r.status !== 'ok') throw new Error(`control ${request} ${r.status}`);
+    }
+
+    async open() {
+      const d = this.usb;
+      if (!d.opened) await d.open();
+      if (!d.configuration) await d.selectConfiguration(1);
+
+      // The IIO interface is named "IIO", but Chrome on macOS leaves
+      // interfaceName null, and its class is not vendor-specific (0x02).
+      // Fall back to the only interface with several interleaved IN/OUT pipes.
+      const isPipes = (alt) => alt.endpoints.length >= 4 && alt.endpoints.length % 2 === 0 &&
+        alt.endpoints.every((e, i) => e.direction === (i % 2 ? 'out' : 'in'));
+      let found = null;
+      for (const itf of d.configuration.interfaces) {
+        for (const alt of itf.alternates) {
+          if (alt.interfaceName === 'IIO') { found = { itf, alt }; break; }
+          if (!found && isPipes(alt)) found = { itf, alt };
+        }
+        if (found && found.alt.interfaceName === 'IIO') break;
+      }
+      if (!found) {
+        const desc = d.configuration.interfaces.map((i) => i.alternates.map((a) =>
+          `#${i.interfaceNumber} ${a.interfaceName || '?'} cls=${a.interfaceClass} ep=${a.endpoints.length}`).join(' ')).join(', ');
+        throw new Error(`IIO interface not found (config ${d.configuration.configurationValue}: ${desc})`);
+      }
+      this.iface = found.itf.interfaceNumber;
+      await d.claimInterface(this.iface);
+
+      // Endpoints come as interleaved IN/OUT couples, one couple per pipe.
+      const eps = found.alt.endpoints;
+      for (let i = 0; i + 1 < eps.length; i += 2) {
+        this.pipes.push(new Pipe(d, i / 2, eps[i].endpointNumber, eps[i + 1].endpointNumber));
+      }
+      if (this.pipes.length < 2) throw new Error('need two IIO pipes');
+
+      await this.control(CMD_RESET_PIPES, 0);
+      await this.control(CMD_OPEN_PIPE, 0);
+      await this.pipes[0].clearHalt();
+
+      const ctl = this.pipes[0];
+      const xml = await ctl.queue.run(async () => {
+        const len = await ctl.exec('PRINT\r\n');
+        if (len < 0) throw new Error(`PRINT failed: ${len}`);
+        const buf = (await ctl.readExact(len + 1)).subarray(0, len);
+        return dec.decode(buf);
+      });
+      this.xml = xml;
+      this.devices = parseContext(xml);
+      this.phy = this.findDevice('ad9361-phy');
+      this.rxDev = this.findDevice('cf-ad9361-lpc');
+      if (!this.phy || !this.rxDev) throw new Error('AD936x devices not found');
+      return this;
+    }
+
+    findDevice(name) {
+      return this.devices.find((x) => x.name === name || x.id === name) || null;
+    }
+
+    attrCmd(verb, dev, chan, attr) {
+      if (chan) {
+        return `${verb} ${dev.id} ${chan.output ? 'OUTPUT' : 'INPUT'} ${chan.id} ${attr}`;
+      }
+      return `${verb} ${dev.id} ${attr}`;
+    }
+
+    readAttr(dev, chan, attr) {
+      const p = this.pipes[0];
+      return p.queue.run(async () => {
+        const n = await p.exec(this.attrCmd('READ', dev, chan, attr) + '\r\n');
+        if (n < 0) throw new Error(`READ ${attr}: ${n}`);
+        const buf = await p.readExact(n + 1);
+        return dec.decode(buf.subarray(0, n)).replace(/\0+$/, '');
+      });
+    }
+
+    writeAttr(dev, chan, attr, value) {
+      const p = this.pipes[0];
+      const data = enc.encode(String(value));
+      return p.queue.run(async () => {
+        await p.write(enc.encode(this.attrCmd('WRITE', dev, chan, attr) + ` ${data.length}\r\n`));
+        await p.write(data);
+        const r = await p.readInt();
+        if (r < 0) throw new Error(`WRITE ${attr}=${value}: ${r}`);
+        return r;
+      });
+    }
+
+    // ---- AD9361/4 convenience ----
+    phyRead(chan, attr) { return this.readAttr(this.phy, chan, attr); }
+    phyWrite(chan, attr, v) { return this.writeAttr(this.phy, chan, attr, v); }
+
+    static get RX() { return { id: 'voltage0', output: false }; }
+    static get RX_LO() { return { id: 'altvoltage0', output: true }; }
+
+    setFrequency(hz) { return this.phyWrite(Pluto.RX_LO, 'frequency', Math.round(hz)); }
+    async getFrequency() { return parseInt(await this.phyRead(Pluto.RX_LO, 'frequency'), 10); }
+    setSampleRate(sps) { return this.phyWrite(Pluto.RX, 'sampling_frequency', Math.round(sps)); }
+    async getSampleRate() { return parseInt(await this.phyRead(Pluto.RX, 'sampling_frequency'), 10); }
+    setBandwidth(hz) { return this.phyWrite(Pluto.RX, 'rf_bandwidth', Math.round(hz)); }
+    async getBandwidth() { return parseInt(await this.phyRead(Pluto.RX, 'rf_bandwidth'), 10); }
+    setGainMode(mode) { return this.phyWrite(Pluto.RX, 'gain_control_mode', mode); }
+    setGain(db) { return this.phyWrite(Pluto.RX, 'hardwaregain', String(Math.round(db))); }
+    async getGain() { return parseFloat(await this.phyRead(Pluto.RX, 'hardwaregain')); }
+    // Reference clock (nominally 40 MHz). Telling the driver its true
+    // frequency corrects the LO and sample rate for crystal error.
+    setXoCorrection(hz) { return this.phyWrite(null, 'xo_correction', Math.round(hz)); }
+    async getXoCorrection() { return parseInt(await this.phyRead(null, 'xo_correction'), 10); }
+    async getRssi() { return parseFloat(await this.phyRead(Pluto.RX, 'rssi')); }
+    async getRange(chan, attr) {
+      const s = await this.phyRead(chan, attr);
+      const m = /\[\s*(\S+)\s+(\S+)\s+(\S+)\s*\]/.exec(s);
+      return m ? { min: +m[1], step: +m[2], max: +m[3] } : null;
+    }
+
+    // Number of kernel DMA blocks queued behind the stream. Fewer blocks means
+    // less stale data after a retune; must be set before startRx().
+    setKernelBuffers(count) {
+      const p = this.pipes[0];
+      return p.queue.run(async () => {
+        const r = await p.exec(`SET ${this.rxDev.id} BUFFERS_COUNT ${count}\r\n`);
+        if (r < 0) throw new Error(`BUFFERS_COUNT failed: ${r}`);
+      });
+    }
+
+    // ---- RX streaming on pipe 1 ----
+    async startRx(samples) {
+      if (this.rx) await this.stopRx();
+      const dev = this.rxDev;
+      const words = Math.ceil(dev.channels.length / 32);
+      const mask = new Uint32Array(words);
+      for (const ch of dev.channels) {
+        if (ch.index >= 0 && (ch.id === 'voltage0' || ch.id === 'voltage1') && ch.type === 'input') {
+          mask[ch.number >> 5] |= 1 << (ch.number & 31);
+        }
+      }
+      let maskHex = '';
+      for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
+
+      const p = this.pipes[1];
+      await this.control(CMD_OPEN_PIPE, p.id);
+      await p.clearHalt();
+      await p.queue.run(async () => {
+        const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
+        if (r < 0) throw new Error(`OPEN failed: ${r}`);
+        await p.exec('TIMEOUT 2000\r\n');
+      });
+      this.rx = { samples, bytes: samples * 4, words };
+    }
+
+    // Returns interleaved I/Q as Int16Array (12-bit samples in 16-bit words).
+    readRx() {
+      const p = this.pipes[1];
+      const rx = this.rx;
+      if (!rx) return Promise.reject(new Error('RX not started'));
+      return p.queue.run(async () => {
+        const out = new Uint8Array(rx.bytes);
+        await p.write(enc.encode(`READBUF ${this.rxDev.id} ${rx.bytes}\r\n`));
+        let got = 0, first = true;
+        while (got < rx.bytes) {
+          const n = await p.readInt();
+          if (n < 0) throw new Error(`READBUF failed: ${n}`);
+          if (n === 0) break;
+          if (first) { await p.readExact(rx.words * 8 + 1); first = false; }
+          await p.readExact(n, out, got);
+          got += n;
+        }
+        return new Int16Array(out.buffer, 0, got >> 1);
+      });
+    }
+
+    async stopRx() {
+      if (!this.rx) return;
+      const p = this.pipes[1];
+      this.rx = null;
+      try {
+        await p.queue.run(() => p.exec(`CLOSE ${this.rxDev.id}\r\n`));
+      } finally {
+        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
+      }
+    }
+
+    async close() {
+      try { await this.stopRx(); } catch (e) { /* device may be gone */ }
+      try { await this.control(CMD_RESET_PIPES, 0); } catch (e) {}
+      try { await this.usb.releaseInterface(this.iface); } catch (e) {}
+      try { await this.usb.close(); } catch (e) {}
+    }
+  }
+
+  Pluto.parseContext = parseContext;
+  Pluto.VENDOR_ID = VENDOR_ID;
+  Pluto.PRODUCT_ID = PRODUCT_ID;
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = Pluto;
+  else root.Pluto = Pluto;
+})(typeof self !== 'undefined' ? self : globalThis);
+</script>
+<script>// Pluto Nano SDR — UI, stream control, rendering and wideband scan.
+
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const MIN_F = 70e6, MAX_F = 6e9;
+  const SCAN_FS = 20e6, SCAN_BLOCK = 16384, SCAN_FFT = 1024, SCAN_USE = 0.8;
+
+  const MODE_DEFAULTS = {
+    WFM: { bandwidth: 200e3, snap: 100000, deemph: 50 },
+    NFM: { bandwidth: 12.5e3, snap: 12500, deemph: 0 },
+    AM: { bandwidth: 10e3, snap: 1000, deemph: 0 },
+    USB: { bandwidth: 2.8e3, snap: 100, deemph: 0 },
+    LSB: { bandwidth: 2.8e3, snap: 100, deemph: 0 },
+    CW: { bandwidth: 500, snap: 100, deemph: 0 },
+  };
+  const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
+  const SAMPLE_RATES = [1.024e6, 1.536e6, 2.048e6, 2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6];
+  const RF_BWS = [0, 0.2e6, 0.5e6, 1e6, 2e6, 4e6, 6e6, 10e6, 20e6, 56e6];
+
+  // Band buttons: default frequency, mode and the range used for the
+  // wideband scan and for remembering the last frequency in the band.
+  const BANDS = [
+    { name: 'FM', f: 80.0e6, mode: 'WFM', lo: 76e6, hi: 95e6, title: 'FM 放送 76–95 MHz' },
+    { name: 'AIR', f: 118.1e6, mode: 'AM', lo: 118e6, hi: 137e6, title: 'エアバンド 118–137 MHz' },
+    // Japanese amateur bands: NFM, 20 kHz channel step.
+    { name: '144', f: 145.0e6, mode: 'NFM', snap: 20e3, lo: 144e6, hi: 146e6, title: '144 MHz アマチュアバンド 144–146 MHz' },
+    { name: '430', f: 433.0e6, mode: 'NFM', snap: 20e3, lo: 430e6, hi: 440e6, title: '430 MHz アマチュアバンド 430–440 MHz' },
+    { name: '1200', f: 1295.0e6, mode: 'NFM', snap: 20e3, lo: 1260e6, hi: 1300e6, title: '1200 MHz アマチュアバンド 1260–1300 MHz' },
+    { name: '2400', f: 2427.0e6, mode: 'NFM', snap: 20e3, lo: 2400e6, hi: 2450e6, title: '2400 MHz アマチュアバンド 2400–2450 MHz' },
+    { name: '5600', f: 5760.0e6, mode: 'NFM', snap: 20e3, lo: 5650e6, hi: 5850e6, title: '5600 MHz アマチュアバンド 5650–5850 MHz' },
+    // Wi-Fi bands: there is nothing to listen to, so these start a
+    // wideband scan of the band and label the channels (Japan).
+    { name: '2.4G', f: 2437e6, mode: 'NFM', lo: 2400e6, hi: 2500e6, wifi: true, title: '2.4 GHz Wi-Fi（ch1–14）をスキャン' },
+    { name: '5G', f: 5500e6, mode: 'NFM', lo: 5150e6, hi: 5730e6, wifi: true, title: '5 GHz Wi-Fi（W52 / W53 / W56）をスキャン' },
+  ];
+
+  // Japanese Wi-Fi channels: [number, centre Hz, width Hz].
+  const WIFI_CHANNELS = [
+    ...Array.from({ length: 13 }, (_, i) => [i + 1, (2412 + 5 * i) * 1e6, 20e6]),
+    [14, 2484e6, 22e6],
+    ...[36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]
+      .map((n) => [n, (5000 + 5 * n) * 1e6, 20e6]),
+  ];
+
+  const DEFAULTS = {
+    lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
+    mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
+    ppm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
+    fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
+    dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
+    scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
+    band: null, bandMem: {},
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, fine: false, autoTs: true,
+  };
+
+  // ---------------- settings ----------------
+  const S = (() => {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('plutonano.settings') || '{}'); } catch (e) { /* ignore */ }
+    const s = Object.assign({}, DEFAULTS, saved);
+    s.perMode = Object.assign({}, JSON.parse(JSON.stringify(MODE_DEFAULTS)), saved.perMode || {});
+    if (!MODE_DEFAULTS[s.mode]) s.mode = 'WFM';
+    return s;
+  })();
+  let saveTimer = 0;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try { localStorage.setItem('plutonano.settings', JSON.stringify(S)); } catch (e) { /* ignore */ }
+    }, 300);
+  }
+  const mode = () => S.perMode[S.mode];
+
+  // ---------------- helpers ----------------
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  function fmtHz(f, digits) {
+    const a = Math.abs(f);
+    if (a >= 1e9) return (f / 1e9).toFixed(digits ?? 6) + ' GHz';
+    if (a >= 1e6) return (f / 1e6).toFixed(digits ?? 4) + ' MHz';
+    if (a >= 1e3) return (f / 1e3).toFixed(digits ?? 2) + ' kHz';
+    return f.toFixed(0) + ' Hz';
+  }
+  function fmtRate(r) { return (r / 1e6).toFixed(r % 1e5 ? 3 : 1).replace(/\.?0+$/, '') + ' MSPS'; }
+  let toastTimer = 0;
+  function toast(msg, kind) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = kind || '';
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, kind === 'info' ? 3000 : 7000);
+  }
+  function blobUrl(id) {
+    return URL.createObjectURL(new Blob([$(id).textContent], { type: 'text/javascript' }));
+  }
+
+  // ---------------- worker ----------------
+  const worker = new Worker(blobUrl('worker-src'));
+  let lastFFT = null;
+  let levelDb = -200;
+  let stereoLocked = false;
+  const sweepWaiters = new Map();
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'fft') {
+      if (state !== 'live') return;
+      lastFFT = m;
+      wfPush(m.db, m.f0, m.binHz);
+      dirty = true;
+    } else if (m.type === 'level') {
+      levelDb = m.db;
+      stereoLocked = !!m.stereo;
+      updateMeter();
+    } else if (m.type === 'sweep') {
+      const w = sweepWaiters.get(m.id);
+      if (w) { sweepWaiters.delete(m.id); w(m.db); }
+    }
+  };
+  function workerConfig() {
+    worker.postMessage({
+      type: 'config',
+      cfg: {
+        fs: S.sampleRate, lo: S.lo, vfo: S.vfo, mode: S.mode, bandwidth: mode().bandwidth,
+        deemph: mode().deemph * 1e-6, stereo: S.stereo, squelch: S.squelchOn ? S.squelch : null,
+        fftSize: S.fftSize, fps: S.fps, window: S.window, smoothing: S.smoothing,
+        audioRate: audio ? audio.ctx.sampleRate : 48000, audio: !!audio && state === 'live',
+      },
+    });
+  }
+
+  // ---------------- audio ----------------
+  let audio = null;
+  // Before the first user gesture Chrome keeps the context suspended and
+  // resume() never settles, so it is not awaited; audio starts on the
+  // first click or key press.
+  function resumeAudio() {
+    if (!audio || audio.ctx.state === 'running') return;
+    audio.ctx.resume().catch(() => {});
+    if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) {
+      toast('クリックまたはキー操作で音声を開始します', 'info');
+    }
+  }
+  for (const ev of ['pointerdown', 'keydown']) {
+    window.addEventListener(ev, () => { if (audio && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {}); }, true);
+  }
+
+  async function ensureAudio() {
+    if (audio) { resumeAudio(); return; }
+    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
+    const gain = ctx.createGain();
+    gain.gain.value = S.volume ** 2;
+    gain.connect(ctx.destination);
+    const ch = new MessageChannel();
+    let node = null;
+    // file:// pages cannot load worklets from blob: URLs, but data: URLs work.
+    const code = $('worklet-src').textContent;
+    for (const url of ['data:text/javascript;base64,' + btoa(unescape(encodeURIComponent(code))), blobUrl('worklet-src')]) {
+      try { await ctx.audioWorklet.addModule(url); node = new AudioWorkletNode(ctx, 'pluto-player', { numberOfInputs: 0, outputChannelCount: [2] }); break; } catch (e) { /* try next */ }
+    }
+    if (node) {
+      node.port.postMessage({ port: ch.port1 }, [ch.port1]);
+    } else {
+      node = scriptProcessorPlayer(ctx, ch.port1);
+    }
+    node.connect(gain);
+    worker.postMessage({ type: 'audioPort', port: ch.port2 }, [ch.port2]);
+    audio = { ctx, node, gain };
+    // Drop what piled up while suspended so playback starts without lag.
+    ctx.addEventListener('statechange', () => { if (ctx.state === 'running') node.port.postMessage({ reset: true }); });
+    resumeAudio();
+  }
+
+  // Fallback player on the main thread for browsers without usable worklets.
+  function scriptProcessorPlayer(ctx, port) {
+    const cap = ctx.sampleRate * 2, buf = new Float32Array(cap * 2), target = Math.round(ctx.sampleRate * 0.2);
+    let r = 0, w = 0, fill = 0, primed = false, tick = 0;
+    port.onmessage = (e) => {
+      const a = e.data, n = a.length >> 1;
+      for (let i = 0; i < n; i++) {
+        if (fill >= cap) { r = (r + 1) % cap; fill--; }
+        buf[2 * w] = a[2 * i]; buf[2 * w + 1] = a[2 * i + 1]; w = (w + 1) % cap; fill++;
+      }
+    };
+    const node = ctx.createScriptProcessor(4096, 0, 2);
+    node.onaudioprocess = (e) => {
+      const L = e.outputBuffer.getChannelData(0), R = e.outputBuffer.getChannelData(1), n = L.length;
+      if (!primed && fill >= target) primed = true;
+      if (primed && fill >= n) {
+        for (let i = 0; i < n; i++) { L[i] = buf[2 * r]; R[i] = buf[2 * r + 1]; r = (r + 1) % cap; }
+        fill -= n;
+      } else { primed = false; L.fill(0); R.fill(0); }
+      if (++tick % 4 === 0) port.postMessage({ fill, target });
+    };
+    node.port = { postMessage(m) { if (m && m.reset) { r = w = fill = 0; primed = false; } } };
+    return node;
+  }
+
+  // ---------------- device ----------------
+  let pluto = null;
+  let state = 'idle'; // idle | live | sweep
+  let curLo = S.lo;
+  // After a retune the kernel still holds buffers captured at the old LO,
+  // so each block is tagged with the LO that was in effect when it was read.
+  const LIVE_KERNEL_BUFFERS = 4;
+  const STALE_READS = LIVE_KERNEL_BUFFERS - 1;
+  let rxReads = 0;
+  let loTags = [];
+  function loForRead(n) {
+    while (loTags.length > 1 && loTags[1].at <= n) loTags.shift();
+    return loTags.length ? loTags[0].lo : curLo;
+  }
+  let streamToken = 0;
+  let rssiTimer = 0;
+
+  function setStatus() {
+    updateBands();
+    $('btnConnect').textContent = pluto ? 'Disconnect' : 'Connect';
+    $('btnConnect').classList.toggle('primary', !pluto);
+    $('btnPlay').disabled = !pluto;
+    $('btnPlay').classList.toggle('on', state === 'live');
+    $('btnPlay').innerHTML = state === 'live' ? '<span class="ic">&#9632;</span> Stop' : '<span class="ic">&#9654;</span> Start';
+    $('btnScan').disabled = !pluto;
+    $('btnScan').textContent = state === 'sweep' ? 'Stop scan' : 'Start scan';
+    $('btnScan').classList.toggle('active', state === 'sweep');
+    updateMeter();
+    $('loVal').textContent = pluto ? fmtHz(curLo, 6) : '—';
+  }
+
+  async function connect(interactive) {
+    if (!navigator.usb) {
+      toast('このブラウザは WebUSB に対応していません。Chrome または Edge で開いてください。');
+      return;
+    }
+    try {
+      // The Connect button always shows the device chooser; only the
+      // automatic connect at startup reuses an already permitted device.
+      let p;
+      if (interactive) p = await window.Pluto.request();
+      else if (!(p = await window.Pluto.getPaired())) return;
+      await p.open();
+      pluto = p;
+      const serial = p.usb.serialNumber ? ' (' + p.usb.serialNumber.slice(-8) + ')' : '';
+      $('devName').textContent = (p.usb.productName || 'PlutoSDR') + serial;
+      const lo = await p.getRange(window.Pluto.RX_LO, 'frequency_available').catch(() => null);
+      if (lo && lo.min > 300e6) {
+        toast(`周波数範囲が ${fmtHz(lo.min, 0)}〜${fmtHz(lo.max, 1)} に制限されています（AD9363 モード）。`, 'info');
+      }
+      await applySource();
+      setStatus();
+      toast('Pluto に接続しました', 'info');
+      await startLive();
+    } catch (e) {
+      pluto = null;
+      setStatus();
+      if (e && e.name === 'NotFoundError') return; // chooser cancelled
+      let msg = 'Pluto に接続できません: ' + (e && e.message ? e.message : e);
+      if (e && e.name === 'SecurityError') msg += '（このページの読み込み方法では WebUSB が使えません）';
+      if (/claim|busy|Unable/i.test(msg)) msg += ' — 他のアプリ（iio_info など）が Pluto を使っていないか確認してください。';
+      toast(msg);
+    }
+  }
+
+  async function disconnect() {
+    const p = pluto;
+    if (!p) return;
+    await stopStream();
+    pluto = null;
+    clearInterval(rssiTimer);
+    await p.close();
+    $('devName').textContent = '—';
+    $('rssiVal').textContent = '—';
+    setStatus();
+  }
+
+  function onDeviceLost(msg) {
+    streamToken++;
+    state = 'idle';
+    pluto = null;
+    clearInterval(rssiTimer);
+    $('devName').textContent = '—';
+    setStatus();
+    workerConfig();
+    toast(msg || 'Pluto との接続が切れました');
+  }
+
+  if (navigator.usb) {
+    navigator.usb.addEventListener('disconnect', (e) => {
+      if (pluto && e.device === pluto.usb) onDeviceLost();
+    });
+  }
+
+  function rfBandwidth() { return S.rfBw || clamp(Math.round(S.sampleRate), 200e3, 56e6); }
+
+  async function applySource() {
+    if (!pluto) return;
+    await applyPpm();
+    await pluto.setSampleRate(S.sampleRate);
+    await pluto.setBandwidth(rfBandwidth());
+    await pluto.setGainMode(S.gainMode);
+    if (S.gainMode === 'manual') await pluto.setGain(S.gain);
+    await pluto.setFrequency(S.lo);
+    curLo = S.lo;
+  }
+
+  // Crystal correction: +ppm means the reference runs fast, so signals
+  // appear lower than their true frequency.
+  const XO_NOMINAL = 40e6;
+  async function applyPpm() {
+    if (!pluto) return;
+    try {
+      await pluto.setXoCorrection(XO_NOMINAL * (1 + S.ppm * 1e-6));
+    } catch (e) {
+      toast('周波数補正を設定できません: ' + e.message);
+    }
+  }
+
+  function blockSize(fs) {
+    return clamp(2 ** Math.floor(Math.log2(fs / 25)), 16384, 262144);
+  }
+
+  async function startLive() {
+    if (!pluto || state === 'live') return;
+    await ensureAudio();
+    audio.node.port.postMessage({ reset: true });
+    const token = ++streamToken;
+    state = 'live';
+    lastFFT = null;
+    try {
+      await pluto.setKernelBuffers(LIVE_KERNEL_BUFFERS);
+      await applySource();
+      await pluto.startRx(blockSize(S.sampleRate));
+      rxReads = 0;
+      loTags = [{ lo: curLo, at: 0 }];
+    } catch (e) {
+      state = 'idle';
+      setStatus();
+      toast('受信を開始できません: ' + e.message);
+      return;
+    }
+    workerConfig();
+    setStatus();
+    startRssi();
+    (async () => {
+      while (token === streamToken) {
+        try {
+          const iq = await pluto.readRx();
+          if (token !== streamToken) break;
+          const lo = loForRead(rxReads++);
+          worker.postMessage({ type: 'iq', data: iq, lo }, [iq.buffer]);
+        } catch (e) {
+          if (token === streamToken) onDeviceLost('受信エラー: ' + e.message);
+          break;
+        }
+      }
+    })();
+  }
+
+  async function stopStream() {
+    if (state === 'idle') return;
+    streamToken++;
+    sweep = null;
+    state = 'idle';
+    clearInterval(rssiTimer);
+    workerConfig();
+    setStatus();
+    if (pluto) {
+      try { await pluto.stopRx(); } catch (e) { /* ignore */ }
+    }
+    dirty = true;
+  }
+
+  async function restartIfLive() {
+    if (state !== 'live') { if (pluto && state === 'idle') applySource().catch(() => {}); return; }
+    await stopStream();
+    await startLive();
+  }
+
+  function startRssi() {
+    clearInterval(rssiTimer);
+    rssiTimer = setInterval(async () => {
+      if (!pluto || state !== 'live') return;
+      try {
+        const r = await pluto.getRssi();
+        const g = await pluto.getGain();
+        curGain = g;
+        updatePanel();
+        $('rssiVal').textContent = `${r.toFixed(1)} dB · gain ${g.toFixed(0)} dB`;
+        if (S.gainMode !== 'manual') $('gainVal').textContent = g.toFixed(0) + ' dB';
+      } catch (e) { /* transient */ }
+    }, 1000);
+  }
+
+  // Coalesces LO writes so dragging never queues a backlog.
+  let loWanted = null, loBusy = false;
+  async function setLo(f) {
+    S.lo = clamp(Math.round(f), MIN_F, MAX_F);
+    if (!pluto || state === 'sweep') { curLo = S.lo; workerConfig(); setStatus(); return; }
+    loWanted = S.lo;
+    if (loBusy) return;
+    loBusy = true;
+    while (loWanted !== null) {
+      const t = loWanted;
+      loWanted = null;
+      try {
+        await pluto.setFrequency(t);
+        curLo = t;
+        loTags.push({ lo: t, at: rxReads + STALE_READS });
+      } catch (e) { toast('周波数を設定できません: ' + e.message); }
+    }
+    loBusy = false;
+    workerConfig();
+    setStatus();
+  }
+
+  // ---------------- tuning ----------------
+  function vfoEdges(f = S.vfo) {
+    const bw = mode().bandwidth;
+    if (S.mode === 'USB') return [f, f + bw];
+    if (S.mode === 'LSB') return [f - bw, f];
+    return [f - bw / 2, f + bw / 2];
+  }
+
+  // ---------------- bands ----------------
+  function buildBands() {
+    const el = $('bands');
+    for (const b of BANDS) {
+      const btn = document.createElement('button');
+      btn.textContent = b.name;
+      btn.title = b.title;
+      btn.dataset.band = b.name;
+      btn.className = 'key';
+      btn.addEventListener('click', () => selectBand(b));
+      el.appendChild(btn);
+    }
+  }
+
+  // The band containing the VFO (or the scan range while scanning),
+  // preferring the one last selected.
+  function activeBand() {
+    const sweeping = state === 'sweep' && !!sweep;
+    const f = sweeping ? (sweep.start + sweep.stop) / 2 : S.vfo;
+    const ok = (b) => b && f >= b.lo && f <= b.hi && !!b.wifi === sweeping;
+    const cur = BANDS.find((b) => b.name === S.band);
+    return ok(cur) ? cur : BANDS.find(ok) || null;
+  }
+
+  function updateBands() {
+    const active = activeBand()?.name;
+    for (const btn of $('bands').children) btn.classList.toggle('active', btn.dataset.band === active);
+  }
+
+  function selectBand(b) {
+    // Remember where we were in the band we are leaving.
+    const cur = BANDS.find((x) => x.name === S.band);
+    if (cur && S.vfo >= cur.lo && S.vfo <= cur.hi) S.bandMem[cur.name] = { f: S.vfo, mode: S.mode };
+    S.band = b.name;
+    S.scanStart = b.lo / 1e6;
+    S.scanStop = b.hi / 1e6;
+    if (b.wifi) {
+      $('scanPreset').value = '';
+      syncControls();
+      save();
+      if (pluto) (state === 'sweep' ? stopSweep() : Promise.resolve()).then(startSweep);
+      return;
+    }
+    const mem = S.bandMem[b.name] || { f: b.f, mode: b.mode };
+    S.mode = mem.mode;
+    if (b.snap) mode().snap = b.snap;
+    syncControls();
+    if (state === 'sweep') {
+      // Leaving a Wi-Fi scan: go back to live reception in the new band.
+      tuneFromScan(mem.f);
+      return;
+    }
+    workerConfig();
+    setVfo(mem.f, { center: true });
+  }
+
+  function setVfo(f, opts = {}) {
+    f = clamp(Math.round(f), MIN_F, MAX_F);
+    if (viewCenter !== null) {
+      const [va, vb] = viewRange();
+      if (opts.center || f < va || f > vb) viewCenter = null;
+    }
+    S.vfo = f;
+    const half = S.sampleRate / 2 * 0.95;
+    const [a, b] = vfoEdges(f);
+    if (opts.center || a < S.lo - half || b > S.lo + half) setLo(f);
+    else workerConfig();
+    renderFreq();
+    updateBands();
+    dirty = true;
+    save();
+  }
+
+  function snap(f) {
+    const s = mode().snap || 1;
+    return Math.round(f / s) * s;
+  }
+
+  // ---------------- frequency display ----------------
+  const DIGITS = 10;
+  // Seven-segment digits drawn as SVG: segments a..g in a SEG_W x SEG_H box.
+  const SEG_W = 56, SEG_H = 80, SEG_T = 9, SEG_G = 1.2;
+  const SEGS = (() => {
+    const t = SEG_T, h = t / 2, g = SEG_G, pts = (a) => a.map((v) => v.toFixed(1)).join(' ');
+    const hz = (y) => pts([h + g, y, t + g, y - h, SEG_W - t - g, y - h, SEG_W - h - g, y,
+      SEG_W - t - g, y + h, t + g, y + h]);
+    const vt = (x, y0, y1) => pts([x, y0 + g, x + h, y0 + h + g, x + h, y1 - h - g, x, y1 - g,
+      x - h, y1 - h - g, x - h, y0 + h + g]);
+    const mid = SEG_H / 2, L = h, R = SEG_W - h;
+    return [hz(h), vt(R, h, mid), vt(R, mid, SEG_H - h), hz(SEG_H - h), vt(L, mid, SEG_H - h), vt(L, h, mid), hz(mid)];
+  })();
+  const SEG_ON = ['abcdef', 'bc', 'abdeg', 'abcdg', 'bcfg', 'acdfg', 'acdefg', 'abc', 'abcdefg', 'abcdfg'];
+  const SEG_SVG = `<svg viewBox="0 0 ${SEG_W} ${SEG_H}">` +
+    SEGS.map((p) => `<polygon points="${p}"/>`).join('') + '</svg>';
+  function buildFreq() {
+    const el = $('freq');
+    el.innerHTML = '';
+    for (let i = DIGITS - 1; i >= 0; i--) {
+      const d = document.createElement('span');
+      d.className = 'd' + (i < 3 ? ' small' : '');
+      d.dataset.k = i;
+      d.innerHTML = SEG_SVG;
+      el.appendChild(d);
+      if (i % 3 === 0 && i > 0) {
+        const s = document.createElement('span');
+        s.className = 'sep';
+        el.appendChild(s);
+      }
+    }
+    el.addEventListener('wheel', (e) => {
+      const d = e.target.closest('.d');
+      if (!d) return;
+      e.preventDefault();
+      const step = 10 ** +d.dataset.k;
+      setVfo(S.vfo + (e.deltaY < 0 ? step : -step));
+    }, { passive: false });
+    el.addEventListener('click', (e) => {
+      const d = e.target.closest('.d');
+      if (!d) return;
+      const r = d.getBoundingClientRect();
+      const step = 10 ** +d.dataset.k;
+      setVfo(S.vfo + (e.clientY < r.top + r.height / 2 ? step : -step));
+    });
+    el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      const inp = $('freqInput');
+      inp.value = (S.vfo / 1e6).toFixed(6).replace(/\.?0+$/, '');
+      el.hidden = true;
+      inp.hidden = false;
+      inp.focus();
+      inp.select();
+    });
+    const inp = $('freqInput');
+    const done = (apply) => {
+      if (apply) {
+        const v = parseFreqInput(inp.value);
+        if (v) setVfo(v, { center: true });
+        else toast('周波数の形式が正しくありません（例: 82.5, 433.92M, 1.2G）');
+      }
+      inp.hidden = true;
+      el.hidden = false;
+    };
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') done(true);
+      else if (e.key === 'Escape') done(false);
+    });
+    inp.addEventListener('blur', () => { if (!inp.hidden) done(false); });
+  }
+
+  function parseFreqInput(s) {
+    const m = /^\s*([\d.]+)\s*([kKmMgG]?)(?:hz|Hz|HZ)?\s*$/.exec(s);
+    if (!m) return null;
+    const v = parseFloat(m[1]);
+    if (!isFinite(v)) return null;
+    const mul = { k: 1e3, m: 1e6, g: 1e9, '': 1e6 }[m[2].toLowerCase()];
+    return v * mul;
+  }
+
+  function renderFreq() {
+    const s = String(Math.round(S.vfo)).padStart(DIGITS, '0');
+    let lead = true, i = 0;
+    for (const el of $('freq').children) {
+      if (el.classList.contains('sep')) { el.classList.toggle('off', lead); continue; }
+      const ch = s[i++];
+      // Leading zeros stay dark, but always show at least 1 MHz digit.
+      if (ch !== '0' || i > DIGITS - 7) lead = false;
+      const on = lead ? '' : SEG_ON[+ch];
+      el.querySelectorAll('polygon').forEach((p, j) => p.classList.toggle('on', on.includes('abcdefg'[j])));
+    }
+  }
+
+  // ---------------- S-meter ----------------
+  // Channel power in dBm ~ dBFS - RX gain + calibration. S9 = -93 dBm
+  // (VHF/UHF convention), 6 dB per S unit; above S9 the scale is in dB.
+  const S9_DBM = -93;
+  let curGain = S.gain;
+  const toDbm = (dbfs) => dbfs - curGain + S.meterCal;
+  // Scale position 0..1: S0..S9 fill the left 60 %, S9..+60 dB the rest.
+  function meterPos(dbm) {
+    if (dbm <= S9_DBM) return clamp((dbm - (S9_DBM - 54)) / 54, 0, 1) * 0.6;
+    return 0.6 + clamp((dbm - S9_DBM) / 60, 0, 1) * 0.4;
+  }
+  function sText(dbm) {
+    if (dbm <= S9_DBM) return 'S' + clamp(Math.floor((dbm - S9_DBM + 54) / 6), 0, 9);
+    return 'S9+' + Math.round(dbm - S9_DBM);
+  }
+  const meter = { target: 0, x: 0, v: 0, peak: 0, peakAt: 0, sq: null, key: '', colors: null };
+
+  function updateMeter() {
+    const live = state === 'live' && levelDb > -199;
+    const dbm = toDbm(levelDb);
+    meter.target = live ? meterPos(dbm) : 0;
+    $('meterText').textContent = live ? dbm.toFixed(1) + ' dBm' : '--- dBm';
+    $('meterText').title = live ? `${levelDb.toFixed(1)} dBFS · gain ${Math.round(curGain)} dB` : '';
+    $('meterS').textContent = live ? sText(dbm) : 'S-';
+    $('stereoInd').classList.toggle('on', state === 'live' && S.mode === 'WFM' && stereoLocked);
+    meter.sq = S.squelchOn ? meterPos(toDbm(S.squelch)) : null;
+  }
+
+  // Needle: slightly under-damped spring; bar: fast attack, slow release
+  // with a peak hold.
+  function meterTick(dt, now) {
+    const p = meter.target;
+    if (S.meterStyle === 'needle') {
+      meter.v += (160 * (p - meter.x) - 16 * meter.v) * dt;
+      meter.x = clamp(meter.x + meter.v * dt, -0.02, 1.03);
+    } else {
+      meter.x += (p - meter.x) * (1 - Math.exp(-dt / (p > meter.x ? 0.03 : 0.3)));
+      meter.v = 0;
+    }
+    if (meter.x >= meter.peak) { meter.peak = meter.x; meter.peakAt = now; }
+    else if (now - meter.peakAt > 1500) meter.peak = Math.max(meter.x, meter.peak - dt * 0.6);
+    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S.meterCal,
+      smeterCanvas.clientWidth, smeterCanvas.clientHeight, dpr].join();
+    if (key !== meter.key) { meter.key = key; drawMeter(); }
+  }
+
+  const smeterCanvas = $('smeter');
+  function fitCanvas(c) {
+    const w = c.clientWidth, h = c.clientHeight;
+    const W = Math.round(w * dpr), H = Math.round(h * dpr);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return [ctx, w, h];
+  }
+  function panelColors() {
+    const cs = getComputedStyle($('panel'));
+    const g = (n) => cs.getPropertyValue(n).trim();
+    return { lcd: g('--lcd'), dim: g('--lcd-dim'), ghost: g('--lcd-ghost'), over: g('--over'), needle: g('--needle') };
+  }
+
+  const S_MARKS = [[1, '1'], [3, '3'], [5, '5'], [7, '7'], [9, '9']].map(([n, t]) => [n / 9 * 0.6, t])
+    .concat([[20, '+20'], [40, '+40'], [60, '+60']].map(([d, t]) => [0.6 + d / 60 * 0.4, t]));
+  const DBM_MARKS = [-140, -120, -100, -80, -60, -40];
+
+  function drawMeter() {
+    const [ctx, w, h] = fitCanvas(smeterCanvas);
+    if (!w || !h) return;
+    const c = meter.colors || (meter.colors = panelColors());
+    const font = (px, wgt = 600) => `${wgt} ${px}px "Helvetica Neue", Arial, sans-serif`;
+    const tick = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (S.meterStyle === 'needle') {
+      // IC-7300 style analog meter on the LCD: one needle over stacked
+      // scales (S units, dBm, and dBFS at the current gain).
+      const ink = '#eef0f4', blue = '#7f86ff', needleCol = '#f05a28';
+      const ital = (px, wgt = 600) => `italic ${wgt} ${px}px "Helvetica Neue", Arial, sans-serif`;
+      const cx = w / 2, cy = h * 2.3, R1 = cy - 30, A = Math.asin((w * 0.39) / R1);
+      const ang = (p) => -Math.PI / 2 - A + p * 2 * A;
+      const pt = (p, r) => [cx + Math.cos(ang(p)) * r, cy + Math.sin(ang(p)) * r];
+      // Title plate.
+      const tw = 62;
+      const tg = ctx.createLinearGradient(0, 0, 0, 11);
+      tg.addColorStop(0, '#4b55d8'); tg.addColorStop(1, '#2a2f8a');
+      ctx.fillStyle = tg;
+      ctx.fillRect(cx - tw / 2, 0, tw, 11);
+      ctx.font = `700 8px "Helvetica Neue", Arial, sans-serif`;
+      ctx.fillStyle = '#ffffff';
+      ctx.letterSpacing = '1px';
+      ctx.fillText('S METER', cx, 6);
+      ctx.letterSpacing = '0px';
+      // Draws one arc with ticks; marks = [[pos, label, major, colour]].
+      const scale = (R, marks, split) => {
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = ink;
+        ctx.beginPath(); ctx.arc(cx, cy, R, ang(0), ang(split ?? 1)); ctx.stroke();
+        if (split != null) {
+          ctx.strokeStyle = blue;
+          ctx.lineWidth = 2.4;
+          ctx.beginPath(); ctx.arc(cx, cy, R + 0.6, ang(split), ang(1)); ctx.stroke();
+        }
+        for (const [p, t, major, col] of marks) {
+          if (p < -0.001 || p > 1.001) continue;
+          ctx.strokeStyle = ctx.fillStyle = col || ink;
+          ctx.lineWidth = major ? 1.3 : 0.9;
+          tick(...pt(p, R), ...pt(p, R + (major ? 5 : 3)));
+          if (t) ctx.fillText(t, ...pt(p, R + 11));
+        }
+      };
+      // S scale.
+      ctx.font = ital(10.5, 700);
+      const sMarks = [];
+      for (let n = 0; n <= 9; n++) sMarks.push([n / 9 * 0.6, n % 2 ? String(n) : '', n % 2 === 1]);
+      for (let d = 10; d <= 60; d += 10) sMarks.push([0.6 + d / 150, d % 20 ? '' : '+' + d, d % 20 === 0, blue]);
+      scale(R1, sMarks, 0.6);
+      ctx.font = ital(15, 800);
+      ctx.fillStyle = ink;
+      ctx.fillText('S', ...pt(-0.07, R1 + 6));
+      ctx.font = ital(8, 700);
+      ctx.fillStyle = blue;
+      ctx.fillText('dB', ...pt(1.0, R1 + 21));
+      // dBm scale.
+      const R2 = R1 - 25;
+      ctx.font = ital(8.5, 600);
+      const mMarks = [];
+      for (let d = -140; d <= -30; d += 10) mMarks.push([meterPos(d), d % 20 ? '' : String(d), d % 20 === 0]);
+      scale(R2, mMarks);
+      ctx.font = ital(8, 800);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'right';
+      ctx.fillText('dBm', ...pt(-0.01, R2 + 1).map((v, i) => v - (i ? 0 : 3)));
+      // dBFS scale, which moves with the RX gain.
+      const R3 = R2 - 25;
+      ctx.textAlign = 'center';
+      ctx.font = ital(8.5, 600);
+      const fMarks = [];
+      for (let d = -160; d <= 0; d += 10) {
+        // Only where the dBFS value lies on the S scale's range.
+        const m = toDbm(d);
+        if (m >= S9_DBM - 54 && m <= S9_DBM + 60) fMarks.push([meterPos(m), d % 20 ? '' : String(d), d % 20 === 0]);
+      }
+      scale(R3, fMarks);
+      ctx.font = ital(8, 800);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'right';
+      ctx.fillText('FS', ...pt(-0.01, R3 + 1).map((v, i) => v - (i ? 0 : 3)));
+      ctx.textAlign = 'center';
+      if (meter.sq !== null) {
+        ctx.fillStyle = blue;
+        ctx.beginPath(); ctx.arc(...pt(meter.sq, R1 - 4), 2, 0, 2 * Math.PI); ctx.fill();
+      }
+      // Needle from below the window, with a faint glow.
+      const t = ang(meter.x), ux = Math.cos(t), uy = Math.sin(t);
+      const r0 = cy - h - 2, r1 = R1 + 7;
+      ctx.strokeStyle = ctx.shadowColor = needleCol;
+      ctx.shadowBlur = 3;
+      ctx.lineWidth = 2;
+      tick(cx + ux * r0, cy + uy * r0, cx + ux * r1, cy + uy * r1);
+      ctx.shadowBlur = 0;
+      return;
+    }
+    // LCD bar meter: scale with tick rail above a fine segmented bar.
+    const mono = (px, wgt = 600) => `${wgt} ${px}px ui-monospace, Menlo, monospace`;
+    const x0 = 16, bw = w - 34, rail = h * 0.42, by = rail + 7, bh = Math.round(h * 0.26), N = 48;
+    const sw = bw / N;
+    ctx.font = mono(11, 700);
+    ctx.fillStyle = c.lcd;
+    ctx.fillText('S', 7, rail - 12);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.lcd;
+    tick(x0, rail, x0 + bw * 0.6, rail);
+    ctx.strokeStyle = c.over;
+    tick(x0 + bw * 0.6, rail, x0 + bw, rail);
+    for (let n = 1; n <= 9; n++) {
+      const x = x0 + n / 9 * 0.6 * bw;
+      ctx.strokeStyle = c.lcd;
+      tick(x, rail, x, rail - (n % 2 ? 5 : 3));
+    }
+    for (let d = 10; d <= 60; d += 10) {
+      const x = x0 + (0.6 + d / 150) * bw;
+      ctx.strokeStyle = c.over;
+      tick(x, rail, x, rail - (d % 20 ? 3 : 5));
+    }
+    for (const [p, t] of S_MARKS) {
+      ctx.font = p > 0.6 ? mono(9.5, 600) : mono(11, 700);
+      ctx.fillStyle = p > 0.6 ? c.over : c.lcd;
+      ctx.fillText(t, x0 + p * bw, rail - 13);
+    }
+    const lit = meter.x * N, pk = Math.min(N - 1, Math.floor(meter.peak * N));
+    for (let i = 0; i < N; i++) {
+      const over = (i + 0.5) / N > 0.6;
+      const on = i + 0.5 <= lit || (i === pk && meter.peak > 0.01);
+      ctx.fillStyle = on ? (over ? c.over : c.lcd) : c.ghost;
+      ctx.fillRect(x0 + i * sw + 0.75, by, sw - 1.5, bh);
+    }
+    if (meter.sq !== null) {
+      const x = x0 + meter.sq * bw;
+      ctx.fillStyle = c.dim;
+      ctx.beginPath(); ctx.moveTo(x, by + bh + 2); ctx.lineTo(x - 4, by + bh + 8); ctx.lineTo(x + 4, by + bh + 8); ctx.fill();
+    }
+  }
+
+  // ---------------- main dial ----------------
+  // 50 detents per turn; clockwise tunes up. A fast flick keeps spinning
+  // with friction, and AUTO multiplies the step by 10 when turned fast.
+  const DETENTS = 50, DETENT = 2 * Math.PI / DETENTS;
+  const dialCanvas = $('dial');
+  const dial = { angle: -Math.PI / 2, acc: 0, v: 0, fly: false, grab: null, total: 0, samples: [], key: '' };
+
+  function tuneBy(n, speed) {
+    if (state === 'sweep' || !n) return;
+    const step = mode().snap || 1000;
+    if (S.fine) setVfo(S.vfo + n * Math.max(1, step / 10));
+    else setVfo(snap(S.vfo) + n * step * (S.autoTs && speed > 40 ? 10 : 1));
+  }
+  function dialRotate(d, speed) {
+    dial.angle = (dial.angle + d) % (2 * Math.PI);
+    dial.acc += d / DETENT;
+    const n = Math.trunc(dial.acc);
+    dial.acc -= n;
+    tuneBy(n, speed);
+  }
+  function dialTick(dt) {
+    if (dial.fly) {
+      dialRotate(dial.v * dt, Math.abs(dial.v) / DETENT);
+      dial.v *= Math.exp(-dt * 1.6);
+      if (Math.abs(dial.v) < 0.5) dial.fly = false;
+    }
+    const key = [dial.angle.toFixed(4), dialCanvas.clientWidth, dpr].join();
+    if (key !== dial.key) { dial.key = key; drawDial(); }
+    for (const k of knobs) {
+      const kk = [k.get().toFixed(4), S.panelTheme, k.canvas.clientWidth, dpr].join();
+      if (kk !== k.key) { k.key = kk; drawKnob(k); }
+    }
+  }
+
+  // ---------------- AF / SQL knobs ----------------
+  // Value 0..1 over a 270 degree sweep; drag up/down or use the wheel.
+  const knobs = [];
+  const knobAngle = (v) => 0.75 * Math.PI + v * 1.5 * Math.PI;
+  function makeKnob(canvas, label, name, get, set, fmt) {
+    const k = { canvas, get, key: '' };
+    let y0 = null, v0 = 0;
+    const show = (on) => { $(label).textContent = on ? fmt() : name; };
+    const apply = (v) => { set(clamp(v, 0, 1)); show(true); };
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      y0 = e.clientY; v0 = get();
+      show(true);
+    });
+    canvas.addEventListener('pointermove', (e) => { if (y0 !== null) apply(v0 + (y0 - e.clientY) / 150); });
+    const up = () => { y0 = null; show(false); };
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    let wheelTimer = 0;
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      apply(get() - e.deltaY * (e.deltaMode === 1 ? 33 : 1) * 0.0004);
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => show(false), 800);
+    }, { passive: false });
+    knobs.push(k);
+  }
+
+  function drawKnob(k) {
+    const [ctx, w, h] = fitCanvas(k.canvas);
+    if (!w || !h) return;
+    const c = meter.colors || (meter.colors = panelColors());
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 7, v = k.get(), a = knobAngle(v);
+    // Value arc around the knob.
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = c.ghost;
+    ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, knobAngle(0), knobAngle(1)); ctx.stroke();
+    if (v > 0.001) {
+      ctx.strokeStyle = c.lcd;
+      ctx.shadowColor = c.lcd; ctx.shadowBlur = 4;
+      ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, knobAngle(0), a); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(cx + 0.5, cy + 1.5, R, 0, 2 * Math.PI); ctx.fill();
+    const g = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+    g.addColorStop(0, '#55555d'); g.addColorStop(1, '#141417');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 28; i++) {
+      const t = a + i * 2 * Math.PI / 28, co = Math.cos(t), si = Math.sin(t);
+      ctx.strokeStyle = `rgba(255,255,255,${(0.06 + 0.12 * Math.max(0, -(co + si) / Math.SQRT2)).toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(cx + co * R * 0.8, cy + si * R * 0.8); ctx.lineTo(cx + co * R * 0.98, cy + si * R * 0.98); ctx.stroke();
+    }
+    ctx.strokeStyle = '#f0f0f4';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * R * 0.2, cy + Math.sin(a) * R * 0.2); ctx.lineTo(cx + Math.cos(a) * R * 0.72, cy + Math.sin(a) * R * 0.72); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  function setVolume(v) {
+    S.volume = v;
+    if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
+    save();
+  }
+
+  // SQL knob: the bottom 3 % is OFF, the rest maps to -120..0 dBFS.
+  const SQL_OFF = 0.03;
+  function setSquelchKnob(v) {
+    S.squelchOn = v >= SQL_OFF;
+    if (S.squelchOn) S.squelch = Math.round(-120 + (v - SQL_OFF) / (1 - SQL_OFF) * 120);
+    $('squelchOn').checked = S.squelchOn;
+    $('squelch').value = S.squelch;
+    $('squelchVal').textContent = S.squelch;
+    workerConfig(); updateMeter(); updatePanel(); save();
+  }
+
+  function bindKnobs() {
+    makeKnob($('afKnob'), 'afLbl', 'AF', () => S.volume, setVolume, () => Math.round(S.volume * 100) + '%');
+    makeKnob($('sqlKnob'), 'sqlLbl', 'SQL',
+      () => (S.squelchOn ? SQL_OFF + (S.squelch + 120) / 120 * (1 - SQL_OFF) : 0),
+      setSquelchKnob, () => (S.squelchOn ? S.squelch + 'dB' : 'OFF'));
+  }
+
+  function drawDial() {
+    const [ctx, w, h] = fitCanvas(dialCanvas);
+    if (!w || !h) return;
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 4, a = dial.angle;
+    // Drop shadow and skirt.
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(cx + 1, cy + 3, R + 1, 0, 2 * Math.PI); ctx.fill();
+    let g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R);
+    g.addColorStop(0, '#2c2c32'); g.addColorStop(1, '#0d0d0f');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+    // Knurled ridges turn with the knob; those facing the top-left light are brighter.
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 80; i++) {
+      const t = a + i * 2 * Math.PI / 80, c = Math.cos(t), s = Math.sin(t);
+      const lit = 0.07 + 0.16 * Math.max(0, -(c + s) / Math.SQRT2);
+      ctx.strokeStyle = `rgba(255,255,255,${lit.toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(cx + c * R * 0.84, cy + s * R * 0.84); ctx.lineTo(cx + c * R * 0.97, cy + s * R * 0.97); ctx.stroke();
+    }
+    // Brushed-metal face; the reflections stay put while the knob turns.
+    const Rf = R * 0.8;
+    g = ctx.createConicGradient(-Math.PI / 4, cx, cy);
+    const metal = ['#62626b', '#2a2a2f', '#55555d', '#232327', '#62626b', '#2a2a2f', '#55555d', '#232327', '#62626b'];
+    metal.forEach((col, i) => g.addColorStop(i / (metal.length - 1), col));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, Rf, 0, 2 * Math.PI); ctx.fill();
+    g = ctx.createLinearGradient(cx - Rf, cy - Rf, cx + Rf, cy + Rf);
+    g.addColorStop(0, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, Rf, 0, 2 * Math.PI); ctx.stroke();
+    // Finger dimple: concave, so dark at the top-left and lit at the bottom-right.
+    const dr = R * 0.16, dx = cx + Math.cos(a) * R * 0.5, dy = cy + Math.sin(a) * R * 0.5;
+    g = ctx.createRadialGradient(dx - dr * 0.35, dy - dr * 0.35, dr * 0.1, dx, dy, dr);
+    g.addColorStop(0, '#0c0c0e'); g.addColorStop(0.8, '#2a2a30'); g.addColorStop(1, '#4a4a52');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(dx, dy, dr, 0, 2 * Math.PI); ctx.fill();
+    // Index mark on the skirt.
+    const c = meter.colors || (meter.colors = panelColors());
+    ctx.fillStyle = c.lcd;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * R * 0.905, cy + Math.sin(a) * R * 0.905, 1.8, 0, 2 * Math.PI); ctx.fill();
+  }
+
+  function bindDial() {
+    const angleOf = (e) => {
+      const r = dialCanvas.getBoundingClientRect();
+      const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2;
+      return { a: Math.atan2(y, x), dist: Math.hypot(x, y) };
+    };
+    dialCanvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dialCanvas.setPointerCapture(e.pointerId);
+      dial.fly = false;
+      dial.grab = angleOf(e).a;
+      dial.total = 0;
+      dial.samples = [{ t: performance.now(), a: 0 }];
+    });
+    dialCanvas.addEventListener('pointermove', (e) => {
+      if (dial.grab === null) return;
+      const { a, dist } = angleOf(e);
+      let d = a - dial.grab;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      dial.grab = a;
+      if (dist < 8) return; // the angle is unstable near the centre
+      const now = performance.now();
+      dial.total += d;
+      dial.samples.push({ t: now, a: dial.total });
+      while (dial.samples.length > 2 && now - dial.samples[0].t > 100) dial.samples.shift();
+      const s0 = dial.samples[0], dt = (now - s0.t) / 1000;
+      dialRotate(d, dt > 0 ? Math.abs(dial.total - s0.a) / dt / DETENT : 0);
+    });
+    const release = () => {
+      if (dial.grab === null) return;
+      dial.grab = null;
+      const now = performance.now();
+      const s = dial.samples.filter((x) => now - x.t < 120);
+      if (s.length < 2) return;
+      const dt = (s[s.length - 1].t - s[0].t) / 1000;
+      const v = dt > 0.01 ? (s[s.length - 1].a - s[0].a) / dt : 0;
+      if (Math.abs(v) > 6) { dial.v = clamp(v, -60, 60); dial.fly = true; }
+    };
+    dialCanvas.addEventListener('pointerup', release);
+    dialCanvas.addEventListener('pointercancel', release);
+    dialCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      dial.fly = false;
+      dialRotate(-e.deltaY * (e.deltaMode === 1 ? 33 : 1) / 100 * DETENT, 0);
+    }, { passive: false });
+  }
+
+  // ---------------- front panel ----------------
+  const STEPS = [10, 100, 1e3, 10e3, 12.5e3, 20e3, 25e3, 100e3];
+  const fmtStep = (v) => (v >= 1e6 ? +(v / 1e6).toFixed(3) + 'M' : v >= 1e3 ? +(v / 1e3).toFixed(2) + 'k' : String(v));
+  const GAIN_MODES = { manual: 'MGC', slow_attack: 'AGC-S', fast_attack: 'AGC-F', hybrid: 'AGC-H' };
+
+  function buildPanel() {
+    const el = $('steps');
+    const key = (label, title, fn) => {
+      const b = document.createElement('button');
+      b.className = 'key';
+      b.textContent = label;
+      b.title = title;
+      b.addEventListener('click', fn);
+      el.appendChild(b);
+      return b;
+    };
+    for (const v of STEPS) {
+      key(fmtStep(v), fmtStep(v) + 'Hz ステップ', () => {
+        mode().snap = v;
+        S.fine = false;
+        $('snap').value = v;
+        updatePanel();
+        save();
+      }).dataset.step = v;
+    }
+    key('FINE', 'ダイヤルをステップの 1/10 で細かく動かす', () => { S.fine = !S.fine; updatePanel(); save(); }).id = 'fineBtn';
+    key('AUTO', '速く回したときステップを 10 倍にする', () => { S.autoTs = !S.autoTs; updatePanel(); save(); }).id = 'autoBtn';
+    $('fineBtn').classList.add('mod');
+    $('autoBtn').classList.add('mod');
+
+    $('modeBadge').addEventListener('click', () => {
+      const order = Object.keys(MODE_DEFAULTS);
+      const next = order[(order.indexOf(S.mode) + 1) % order.length];
+      document.querySelector(`#modes button[data-mode="${next}"]`).click();
+    });
+    $('themeBtn').addEventListener('click', () => {
+      S.panelTheme = S.panelTheme === 'amber' ? 'cyan' : 'amber';
+      updatePanel();
+      save();
+    });
+    smeterCanvas.addEventListener('click', () => {
+      S.meterStyle = S.meterStyle === 'bar' ? 'needle' : 'bar';
+      meter.v = 0;
+      save();
+    });
+    const clock = () => {
+      const d = new Date();
+      $('clock').textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    };
+    clock();
+    setInterval(clock, 5000);
+    bindDial();
+    bindKnobs();
+  }
+
+  function updatePanel() {
+    const m = mode();
+    if ($('panel').dataset.theme !== S.panelTheme) {
+      $('panel').dataset.theme = S.panelTheme;
+      meter.colors = null;
+      meter.key = dial.key = '';
+    }
+    $('modeBadge').textContent = S.mode;
+    $('bwBadge').textContent = 'BW ' + fmtStep(m.bandwidth);
+    $('tsBadge').textContent = 'TS ' + fmtStep(S.fine ? Math.max(1, m.snap / 10) : m.snap);
+    $('agcBadge').textContent = GAIN_MODES[S.gainMode] || S.gainMode;
+    $('gainBadge').textContent = 'G ' + Math.round(curGain);
+    $('srBadge').textContent = +(S.sampleRate / 1e6).toFixed(3) + 'M';
+    $('sqlBadge').classList.toggle('on', S.squelchOn);
+    for (const b of $('steps').querySelectorAll('[data-step]')) b.classList.toggle('active', +b.dataset.step === m.snap);
+    $('fineBtn').classList.toggle('active', S.fine);
+    $('autoBtn').classList.toggle('active', S.autoTs);
+  }
+
+  // ---------------- colormaps ----------------
+  function buildLut(name) {
+    const lut = new Uint32Array(256);
+    const stops = {
+      classic: ['#000020', '#000030', '#000050', '#000091', '#1e90ff', '#ffffff', '#ffff00', '#fe6d16', '#ff0000', '#c60000', '#9f0000', '#750000', '#4a0000'],
+      gray: ['#000000', '#ffffff'],
+    }[name];
+    for (let i = 0; i < 256; i++) {
+      let r, g, b;
+      const t = i / 255;
+      if (name === 'turbo') {
+        r = 34.61 + t * (1172.33 - t * (10793.56 - t * (33300.12 - t * (38394.49 - t * 14825.05))));
+        g = 23.31 + t * (557.33 + t * (1225.33 - t * (3574.96 - t * (1073.77 + t * 707.56))));
+        b = 27.2 + t * (3211.1 - t * (15327.97 - t * (27814 - t * (22569.18 - t * 6838.66))));
+      } else {
+        const pos = t * (stops.length - 1);
+        const i0 = Math.min(Math.floor(pos), stops.length - 2), f = pos - i0;
+        const c0 = parseInt(stops[i0].slice(1), 16), c1 = parseInt(stops[i0 + 1].slice(1), 16);
+        r = ((c0 >> 16) & 255) * (1 - f) + ((c1 >> 16) & 255) * f;
+        g = ((c0 >> 8) & 255) * (1 - f) + ((c1 >> 8) & 255) * f;
+        b = (c0 & 255) * (1 - f) + (c1 & 255) * f;
+      }
+      lut[i] = (255 << 24) | (clamp(b | 0, 0, 255) << 16) | (clamp(g | 0, 0, 255) << 8) | clamp(r | 0, 0, 255);
+    }
+    return lut;
+  }
+  let lut = buildLut(S.colormap);
+
+  // ---------------- view ----------------
+  const specCanvas = $('spec'), wfCanvas = $('wf'), ovCanvas = $('wfOverlay');
+  const specCtx = specCanvas.getContext('2d');
+  const wfCtx = wfCanvas.getContext('2d', { willReadFrequently: false });
+  const ovCtx = ovCanvas.getContext('2d');
+  let dpr = window.devicePixelRatio || 1;
+  let dirty = true;
+  let hoverX = null;
+
+  // Visible span: zoom slider 0..1 maps logarithmically from full band to ~1/2000.
+  // Centre of the displayed range while live; null follows the VFO.
+  let viewCenter = null;
+
+  function viewRange() {
+    if (state === 'sweep' && sweep) {
+      const full = sweep.stop - sweep.start;
+      const span = full / (1 + 199 * S.zoom ** 2);
+      const c = clamp(sweep.viewCenter ?? (sweep.start + full / 2), sweep.start + span / 2, sweep.stop - span / 2);
+      return [c - span / 2, c + span / 2];
+    }
+    const fs = S.sampleRate;
+    const span = Math.max(fs / Math.pow(2000, S.zoom), 2000);
+    // While panning, follow the LO being tuned rather than the last frame.
+    const lo = state === 'live' && lastFFT && !(drag && drag.kind === 'pan') ? lastFFT.f0 + fs / 2 : S.lo;
+    const c = clamp(viewCenter ?? S.vfo, lo - fs / 2 + span / 2, lo + fs / 2 - span / 2);
+    return [c - span / 2, c + span / 2];
+  }
+
+  function xToFreq(x, w) {
+    const [a, b] = viewRange();
+    return a + (x / w) * (b - a);
+  }
+  function freqToX(f, w) {
+    const [a, b] = viewRange();
+    return ((f - a) / (b - a)) * w;
+  }
+
+  // Per-pixel max (or interpolation when zoomed past bin resolution).
+  function lineFor(db, f0, binHz, va, vb, W, out) {
+    const n = db.length;
+    const px = (vb - va) / W;
+    for (let x = 0; x < W; x++) {
+      const fa = va + x * px, fb = fa + px;
+      const ia = (fa - f0) / binHz, ib = (fb - f0) / binHz;
+      if (ib < 0 || ia >= n) { out[x] = NaN; continue; }
+      if (ib - ia < 1) {
+        const p = clamp((ia + ib) / 2 - 0.5, 0, n - 1);
+        const i = Math.floor(p), f = p - i;
+        out[x] = i + 1 < n ? db[i] * (1 - f) + db[i + 1] * f : db[i];
+      } else {
+        let m = -Infinity;
+        const s = Math.max(0, Math.floor(ia)), e = Math.min(n, Math.ceil(ib));
+        for (let i = s; i < e; i++) if (db[i] > m) m = db[i];
+        out[x] = m;
+      }
+    }
+    return out;
+  }
+
+  function niceStep(span, target) {
+    const raw = span / target;
+    const p = 10 ** Math.floor(Math.log10(raw));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= raw) return m * p;
+    return 10 * p;
+  }
+
+  function fmtTick(f, step) {
+    if (step >= 1e6) return (f / 1e6).toFixed(Math.max(0, -Math.floor(Math.log10(step / 1e6)))) + 'M';
+    if (step >= 1e3) return (f / 1e6).toFixed(Math.max(3, 6 - Math.floor(Math.log10(step)))).replace(/\.?0+$/, '') + 'M';
+    return (f / 1e6).toFixed(6) + 'M';
+  }
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    for (const c of [specCanvas, wfCanvas, ovCanvas]) {
+      const w = Math.max(1, Math.round(c.clientWidth * dpr));
+      const h = Math.max(1, Math.round(c.clientHeight * dpr));
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    }
+    wfFullRender();
+    dirty = true;
+  }
+
+  const AXIS_H = 22;
+  let lineBuf = new Float32Array(0);
+
+  function drawSpectrum() {
+    const W = specCanvas.width, H = specCanvas.height;
+    const ctx = specCtx;
+    const axisH = AXIS_H * dpr;
+    const plotH = H - axisH;
+    ctx.fillStyle = '#0b0b0d';
+    ctx.fillRect(0, 0, W, H);
+
+    const [va, vb] = viewRange();
+    const dbMin = S.dbMin, dbMax = Math.max(S.dbMax, S.dbMin + 5);
+    const yOf = (db) => (1 - (db - dbMin) / (dbMax - dbMin)) * plotH;
+
+    // Grid.
+    ctx.font = `${11 * dpr}px ui-monospace, Menlo, monospace`;
+    ctx.strokeStyle = '#26262b';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#7d7d86';
+    ctx.textBaseline = 'middle';
+    const dbStep = niceStep(dbMax - dbMin, plotH / (40 * dpr));
+    for (let d = Math.ceil(dbMin / dbStep) * dbStep; d <= dbMax; d += dbStep) {
+      const y = Math.round(yOf(d)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      ctx.fillText(String(Math.round(d)), 4 * dpr, y - 7 * dpr);
+    }
+    const fStep = niceStep(vb - va, W / (110 * dpr));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let f = Math.ceil(va / fStep) * fStep; f <= vb; f += fStep) {
+      const x = Math.round(((f - va) / (vb - va)) * W) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, plotH); ctx.stroke();
+      ctx.fillText(fmtTick(f, fStep), x, plotH + 5 * dpr);
+    }
+    ctx.textAlign = 'left';
+    ctx.strokeStyle = '#3a3a40';
+    ctx.beginPath(); ctx.moveTo(0, plotH + 0.5); ctx.lineTo(W, plotH + 0.5); ctx.stroke();
+
+    // Trace.
+    let src = null;
+    if (state === 'sweep' && sweep) src = { db: sweep.db, f0: sweep.start, binHz: sweep.binHz };
+    else if (lastFFT) src = lastFFT;
+    if (src) {
+      if (lineBuf.length !== W) lineBuf = new Float32Array(W);
+      lineFor(src.db, src.f0, src.binHz, va, vb, W, lineBuf);
+      const grad = ctx.createLinearGradient(0, 0, 0, plotH);
+      grad.addColorStop(0, 'rgba(66,150,250,0.45)');
+      grad.addColorStop(1, 'rgba(66,150,250,0.04)');
+      ctx.beginPath();
+      let started = false, lastX = 0;
+      for (let x = 0; x < W; x++) {
+        const v = lineBuf[x];
+        if (Number.isNaN(v)) continue;
+        const y = clamp(yOf(v), 0, plotH);
+        if (!started) { ctx.moveTo(x, plotH); ctx.lineTo(x, y); started = true; } else ctx.lineTo(x, y);
+        lastX = x;
+      }
+      if (started) {
+        ctx.lineTo(lastX, plotH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.beginPath();
+        started = false;
+        for (let x = 0; x < W; x++) {
+          const v = lineBuf[x];
+          if (Number.isNaN(v)) { started = false; continue; }
+          const y = clamp(yOf(v), 0, plotH);
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = '#9cc8ff';
+        ctx.lineWidth = Math.max(1, dpr * 0.75);
+        ctx.stroke();
+      }
+    }
+
+    drawWifiChannels(ctx, W, plotH, va, vb);
+
+    // VFO.
+    if (state !== 'sweep') drawVfo(ctx, W, plotH, true);
+    if (state === 'sweep' && sweep) drawSweepCursor(ctx, W, plotH);
+
+    // Hover readout.
+    if (hoverX !== null) {
+      const x = hoverX * dpr;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, plotH); ctx.stroke();
+      const f = xToFreq(x, W);
+      let txt = fmtHz(f, 4);
+      if (src && lineBuf.length === W && !Number.isNaN(lineBuf[Math.round(clamp(x, 0, W - 1))])) {
+        txt += '  ' + lineBuf[Math.round(clamp(x, 0, W - 1))].toFixed(1) + ' dB';
+      }
+      ctx.font = `${12 * dpr}px ui-monospace, Menlo, monospace`;
+      const tw = ctx.measureText(txt).width + 10 * dpr;
+      const tx = clamp(x + 8 * dpr, 0, W - tw);
+      ctx.fillStyle = 'rgba(20,20,24,0.85)';
+      ctx.fillRect(tx, 6 * dpr, tw, 18 * dpr);
+      ctx.fillStyle = '#e4e4e7';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(txt, tx + 5 * dpr, 15 * dpr);
+    }
+  }
+
+  // Wi-Fi channel numbers along the top while a Wi-Fi band is shown.
+  function drawWifiChannels(ctx, W, H, va, vb) {
+    const band = activeBand();
+    if (!band || !band.wifi) return;
+    const chans = WIFI_CHANNELS.filter(([, f, w]) => f + w / 2 > va && f - w / 2 < vb);
+    if (!chans.length) return;
+    const px = (f) => ((f - va) / (vb - va)) * W;
+    ctx.font = `${11 * dpr}px ui-monospace, Menlo, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    // Skip labels that would overlap (2.4 GHz channels are 5 MHz apart).
+    const minGap = ctx.measureText('ch144').width + 6 * dpr;
+    let lastX = -Infinity, row = 0;
+    for (const [n, f, w] of chans) {
+      const x = px(f), xa = px(f - w / 2), xb = px(f + w / 2);
+      const y = 4 * dpr + (row % 2) * 4 * dpr;
+      row++;
+      ctx.strokeStyle = 'rgba(245,217,10,0.35)';
+      ctx.lineWidth = Math.max(1, dpr);
+      ctx.beginPath(); ctx.moveTo(xa + 1, y); ctx.lineTo(xb - 1, y); ctx.stroke();
+      ctx.setLineDash([3 * dpr, 4 * dpr]);
+      ctx.strokeStyle = 'rgba(245,217,10,0.18)';
+      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, y); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
+      ctx.setLineDash([]);
+      if (x - lastX >= minGap) {
+        ctx.fillStyle = 'rgba(245,217,10,0.85)';
+        ctx.fillText('ch' + n, x, 12 * dpr);
+        lastX = x;
+      }
+    }
+    ctx.textAlign = 'left';
+  }
+
+  function drawVfo(ctx, W, H, label) {
+    const [a, b] = vfoEdges();
+    const xa = freqToX(a, W), xb = freqToX(b, W), xc = freqToX(S.vfo, W);
+    ctx.fillStyle = 'rgba(66,150,250,0.20)';
+    ctx.fillRect(xa, 0, Math.max(1, xb - xa), H);
+    ctx.strokeStyle = 'rgba(66,150,250,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(xa) + 0.5, 0); ctx.lineTo(Math.round(xa) + 0.5, H);
+    ctx.moveTo(Math.round(xb) + 0.5, 0); ctx.lineTo(Math.round(xb) + 0.5, H);
+    ctx.stroke();
+    ctx.strokeStyle = '#ff4d4d';
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.beginPath(); ctx.moveTo(Math.round(xc) + 0.5, 0); ctx.lineTo(Math.round(xc) + 0.5, H); ctx.stroke();
+    if (label) {
+      ctx.font = `${11 * dpr}px system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(66,150,250,0.95)';
+      const t = S.mode;
+      const tw = ctx.measureText(t).width;
+      ctx.fillText(t, clamp(xc - tw / 2, 0, W - tw), H - 10 * dpr);
+    }
+  }
+
+  function drawSweepCursor(ctx, W, H) {
+    if (sweep.curLo == null) return;
+    const x = freqToX(sweep.curLo, W);
+    ctx.strokeStyle = 'rgba(255,200,0,0.6)';
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); ctx.stroke();
+  }
+
+  function drawOverlay() {
+    const W = ovCanvas.width, H = ovCanvas.height;
+    ovCtx.clearRect(0, 0, W, H);
+    if (state !== 'sweep') {
+      ovCtx.save();
+      ovCtx.globalAlpha = 0.6;
+      drawVfo(ovCtx, W, H, false);
+      ovCtx.restore();
+    }
+    if (hoverX !== null) {
+      ovCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ovCtx.beginPath(); ovCtx.moveTo(hoverX * dpr + 0.5, 0); ovCtx.lineTo(hoverX * dpr + 0.5, H); ovCtx.stroke();
+    }
+  }
+
+  // ---------------- waterfall ----------------
+  const WF_ROWS = 1200;
+  const wfRows = [];
+  let wfView = null;
+  let wfPending = [];
+
+  function quantize(db) {
+    const q = new Uint8Array(db.length);
+    for (let i = 0; i < db.length; i++) q[i] = clamp(Math.round((db[i] + 170) * 1.5), 0, 255);
+    return q;
+  }
+
+  function wfPush(db, f0, binHz) {
+    const row = { q: quantize(db), f0, binHz };
+    wfRows.unshift(row);
+    if (wfRows.length > WF_ROWS) wfRows.length = WF_ROWS;
+    wfPending.push(row);
+  }
+
+  let rowLine = new Float32Array(0), rowQ = new Float32Array(0);
+  function paintRow(row, img, y, W, va, vb) {
+    if (rowLine.length !== W) rowLine = new Float32Array(W);
+    if (rowQ.length !== row.q.length) rowQ = new Float32Array(row.q.length);
+    for (let i = 0; i < row.q.length; i++) rowQ[i] = row.q[i] / 1.5 - 170;
+    lineFor(rowQ, row.f0, row.binHz, va, vb, W, rowLine);
+    const lo = S.dbMin, k = 255 / Math.max(S.dbMax - S.dbMin, 1);
+    const base = y * W;
+    for (let x = 0; x < W; x++) {
+      const v = rowLine[x];
+      img[base + x] = Number.isNaN(v) ? 0xff0a0a0a : lut[clamp(((v - lo) * k) | 0, 0, 255)];
+    }
+  }
+
+  function wfFullRender() {
+    const W = wfCanvas.width, H = wfCanvas.height;
+    if (!W || !H) return;
+    const [va, vb] = viewRange();
+    const img = wfCtx.createImageData(W, H);
+    const px = new Uint32Array(img.data.buffer);
+    px.fill(0xff0a0a0a);
+    const n = Math.min(H, wfRows.length);
+    for (let y = 0; y < n; y++) paintRow(wfRows[y], px, y, W, va, vb);
+    wfCtx.putImageData(img, 0, 0);
+    wfView = { va, vb, W, H, min: S.dbMin, max: S.dbMax, lut };
+    wfPending = [];
+  }
+
+  function wfUpdate() {
+    const W = wfCanvas.width, H = wfCanvas.height;
+    const [va, vb] = viewRange();
+    if (!wfView || wfView.va !== va || wfView.vb !== vb || wfView.W !== W || wfView.H !== H ||
+        wfView.min !== S.dbMin || wfView.max !== S.dbMax || wfView.lut !== lut) {
+      wfFullRender();
+      return;
+    }
+    const n = wfPending.length;
+    if (!n) return;
+    if (n >= H) { wfFullRender(); return; }
+    wfCtx.drawImage(wfCanvas, 0, 0, W, H - n, 0, n, W, H - n);
+    const img = wfCtx.createImageData(W, n);
+    const px = new Uint32Array(img.data.buffer);
+    // Newest row goes on top.
+    for (let i = 0; i < n; i++) paintRow(wfPending[n - 1 - i], px, i, W, va, vb);
+    wfCtx.putImageData(img, 0, 0);
+    wfPending = [];
+  }
+
+  let lastFrame = 0;
+  function frame(now) {
+    const dt = clamp((now - lastFrame) / 1000 || 0, 0, 0.05);
+    lastFrame = now;
+    meterTick(dt, now);
+    dialTick(dt);
+    if (dirty) {
+      dirty = false;
+      drawSpectrum();
+      wfUpdate();
+      drawOverlay();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------- pointer interaction ----------------
+  let drag = null;
+
+  function hitEdge(x, W) {
+    if (state === 'sweep') return null;
+    const [a, b] = vfoEdges();
+    const xa = freqToX(a, W) / dpr, xb = freqToX(b, W) / dpr;
+    if (Math.abs(x - xa) < 5) return S.mode === 'USB' ? null : 'left';
+    if (Math.abs(x - xb) < 5) return S.mode === 'LSB' ? null : 'right';
+    return null;
+  }
+
+  function attachPointer(el) {
+    el.addEventListener('pointerdown', (e) => {
+      const r = el.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const W = el.width;
+      const f = xToFreq(x * dpr, W);
+      el.setPointerCapture(e.pointerId);
+      const [va, vb] = viewRange();
+      // Spectrum: dragging the background scrolls the frequency; a click
+      // without movement tunes there (decided on pointerup).
+      const pan = { kind: 'pan', el, x0: x, f, hzPerPx: (vb - va) / el.clientWidth, moved: false };
+      if (state === 'sweep') {
+        drag = Object.assign(pan, { center0: (va + vb) / 2 });
+        return;
+      }
+      const edge = el === specCanvas ? hitEdge(x, W) : null;
+      if (edge) { drag = { kind: 'edge', edge, el }; return; }
+      // Spectrum: always scroll (the VFO only moves on a plain click).
+      if (el === specCanvas) { drag = Object.assign(pan, { center0: (va + vb) / 2, span: vb - va }); return; }
+      const [a, b] = vfoEdges();
+      if (f >= a && f <= b) drag = { kind: 'vfo', el, off: S.vfo - f };
+      else { drag = { kind: 'vfo', el, off: 0 }; setVfo(snap(f)); }
+    });
+    el.addEventListener('pointermove', (e) => {
+      const r = el.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      hoverX = x;
+      dirty = true;
+      const W = el.width;
+      if (!drag) {
+        el.style.cursor = el === specCanvas && hitEdge(x, W) ? 'ew-resize' : 'crosshair';
+        return;
+      }
+      if (drag.kind === 'pan') {
+        const dx = x - drag.x0;
+        if (!drag.moved && Math.abs(dx) < 4) return;
+        drag.moved = true;
+        el.style.cursor = 'grabbing';
+        const df = -dx * drag.hzPerPx;
+        if (state === 'sweep') {
+          if (sweep && drag.center0 != null) { sweep.viewCenter = drag.center0 + df; dirty = true; }
+          return;
+        }
+        // Scroll the displayed range. The VFO keeps its frequency; the LO
+        // follows when the view leaves the captured band.
+        const fs = S.sampleRate, span = drag.span;
+        const c = clamp(drag.center0 + df, MIN_F + span / 2, MAX_F - span / 2);
+        let lo = S.lo;
+        if (c - span / 2 < lo - fs / 2) lo = c - span / 2 + fs / 2;
+        if (c + span / 2 > lo + fs / 2) lo = c + span / 2 - fs / 2;
+        viewCenter = c;
+        if (Math.round(lo) !== S.lo) {
+          // Keep the VFO inside the band; it is pushed along at the edge.
+          const half = fs / 2 * 0.95;
+          const v = clamp(S.vfo, lo - half, lo + half);
+          if (v !== S.vfo) { S.vfo = snap(v); renderFreq(); updateBands(); }
+          setLo(lo);
+          save();
+        }
+        dirty = true;
+        return;
+      }
+      const f = xToFreq(x * dpr, W);
+      if (drag.kind === 'vfo') {
+        const nf = snap(f + drag.off);
+        if (nf !== S.vfo) {
+          // Stay inside the current band while dragging.
+          const half = S.sampleRate / 2;
+          setVfo(clamp(nf, S.lo - half, S.lo + half));
+        }
+      } else if (drag.kind === 'edge') {
+        let bw;
+        if (S.mode === 'USB') bw = f - S.vfo;
+        else if (S.mode === 'LSB') bw = S.vfo - f;
+        else bw = 2 * Math.abs(f - S.vfo);
+        const [mn, mx] = BW_LIMITS[S.mode];
+        setBandwidth(clamp(Math.round(bw / 100) * 100, mn, mx));
+      }
+    });
+    el.addEventListener('pointerup', () => {
+      const d = drag;
+      drag = null;
+      el.style.cursor = 'crosshair';
+      if (!d || d.kind !== 'pan' || d.moved) return;
+      if (state === 'sweep') tuneFromScan(d.f);
+      else setVfo(snap(d.f));
+    });
+    el.addEventListener('pointercancel', () => { drag = null; });
+    el.addEventListener('pointerleave', () => { hoverX = null; dirty = true; });
+    el.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const z = clamp(S.zoom - e.deltaY * 0.0015, 0, 1);
+        if (state === 'sweep' && sweep) {
+          const r = el.getBoundingClientRect();
+          sweep.viewCenter = xToFreq((e.clientX - r.left) * dpr, el.width);
+        }
+        S.zoom = z;
+        $('zoom').value = z;
+        dirty = true;
+        save();
+        return;
+      }
+      if (state === 'sweep') return;
+      const step = mode().snap || 1000;
+      setVfo(snap(S.vfo) + (e.deltaY < 0 ? step : -step) * (e.shiftKey ? 10 : 1));
+    }, { passive: false });
+  }
+
+  function setBandwidth(bw) {
+    mode().bandwidth = bw;
+    $('bandwidth').value = +(bw / 1e3).toFixed(2);
+    updatePanel();
+    workerConfig();
+    dirty = true;
+    save();
+  }
+
+  // ---------------- wideband scan ----------------
+  let sweep = null;
+  let sweepId = 0;
+
+  function sweepFFT(iq, lo) {
+    return new Promise((resolve) => {
+      const id = ++sweepId;
+      sweepWaiters.set(id, resolve);
+      worker.postMessage({ type: 'sweep', data: iq, lo, id }, [iq.buffer]);
+    });
+  }
+
+  async function startSweep() {
+    if (!pluto) return;
+    let a = clamp(+S.scanStart * 1e6, MIN_F, MAX_F), b = clamp(+S.scanStop * 1e6, MIN_F, MAX_F);
+    if (!(b > a)) { toast('Stop は Start より大きくしてください'); return; }
+    await stopStream();
+    const token = ++streamToken;
+    const binHz = SCAN_FS / SCAN_FFT;
+    const nb = Math.ceil((b - a) / binHz) + 1;
+    sweep = { start: a, stop: b, binHz, db: new Float32Array(nb).fill(-160), curLo: null, viewCenter: null, passes: 0 };
+    state = 'sweep';
+    S.zoom = 0; $('zoom').value = 0;
+    wfRows.length = 0;
+    setStatus();
+    dirty = true;
+    try {
+      await pluto.setSampleRate(SCAN_FS);
+      await pluto.setBandwidth(18e6);
+      await pluto.setGainMode('manual');
+      await pluto.setGain(S.scanGain);
+      await pluto.setKernelBuffers(2);
+      await pluto.startRx(SCAN_BLOCK);
+    } catch (e) {
+      toast('スキャンを開始できません: ' + e.message);
+      await stopStream();
+      return;
+    }
+    const use = SCAN_FS * SCAN_USE;
+    const half = SCAN_FFT / 2, keep = Math.ceil(SCAN_FFT * SCAN_USE / 2) + 2; // slight overlap: no gaps between steps
+    try {
+      while (token === streamToken) {
+        const t0 = performance.now();
+        for (let c = a + use / 2; c - use / 2 < b && token === streamToken; c += use) {
+          const lo = clamp(Math.round(c), MIN_F, MAX_F);
+          await pluto.setFrequency(lo);
+          await pluto.readRx();
+          await pluto.readRx();
+          const iq = await pluto.readRx();
+          const db = await sweepFFT(iq, lo);
+          if (token !== streamToken) break;
+          // DC spike: patch the centre bins from their neighbours.
+          const dcFix = (db[half - 3] + db[half + 3]) / 2;
+          for (let i = half - 2; i <= half + 2; i++) db[i] = dcFix;
+          for (let i = half - keep; i <= half + keep; i++) {
+            const f = lo + (i - half) * binHz;
+            const j = Math.round((f - a) / binHz);
+            if (j >= 0 && j < nb) sweep.db[j] = db[i];
+          }
+          sweep.curLo = lo;
+          dirty = true;
+        }
+        if (token !== streamToken) break;
+        sweep.passes++;
+        wfPush(sweep.db, a, binHz);
+        dirty = true;
+        const dt = (performance.now() - t0) / 1000;
+        $('scanInfo').textContent = `Pass ${sweep.passes} · ${dt.toFixed(2)} s/sweep · ${(binHz / 1e3).toFixed(1)} kHz/bin`;
+      }
+    } catch (e) {
+      if (token === streamToken) onDeviceLost('スキャン中のエラー: ' + e.message);
+    }
+  }
+
+  async function stopSweep() {
+    if (state !== 'sweep') return;
+    await stopStream();
+    wfRows.length = 0;
+    if (pluto) {
+      try {
+        await pluto.setKernelBuffers(LIVE_KERNEL_BUFFERS);
+        await applySource();
+      } catch (e) { /* reported on next start */ }
+    }
+    setStatus();
+    dirty = true;
+  }
+
+  async function tuneFromScan(f) {
+    f = snap(clamp(f, MIN_F, MAX_F));
+    await stopSweep();
+    viewCenter = null;
+    S.vfo = f;
+    S.lo = f;
+    curLo = f;
+    renderFreq();
+    updateBands();
+    save();
+    await startLive();
+  }
+
+  // ---------------- controls ----------------
+  function fillSelect(sel, values, fmt) {
+    sel.innerHTML = '';
+    for (const v of values) {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = fmt(v);
+      sel.appendChild(o);
+    }
+  }
+
+  function syncControls() {
+    $('sampleRate').value = S.sampleRate;
+    $('rfBw').value = S.rfBw;
+    $('gainMode').value = S.gainMode;
+    $('gain').value = S.gain;
+    $('ppm').value = S.ppm;
+    $('meterCal').value = S.meterCal;
+    if (S.gainMode === 'manual') curGain = S.gain;
+    $('gain').disabled = S.gainMode !== 'manual';
+    $('gainVal').textContent = S.gain + ' dB';
+    document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.mode));
+    $('bandwidth').value = +(mode().bandwidth / 1e3).toFixed(2);
+    $('snap').value = mode().snap;
+    $('deemph').value = mode().deemph;
+    $('deemph').disabled = !(S.mode === 'WFM' || S.mode === 'NFM');
+    $('stereo').checked = S.stereo;
+    $('stereo').disabled = S.mode !== 'WFM';
+    $('squelchOn').checked = S.squelchOn;
+    $('squelch').value = S.squelch;
+    $('squelchVal').textContent = S.squelch;
+    $('fftSize').value = S.fftSize;
+    $('fps').value = S.fps; $('fpsVal').textContent = S.fps;
+    $('window').value = S.window;
+    $('smoothing').value = S.smoothing; $('smoothingVal').textContent = S.smoothing.toFixed(2);
+    $('colormap').value = S.colormap;
+    $('dbMax').value = S.dbMax; $('dbMaxVal').textContent = S.dbMax;
+    $('dbMin').value = S.dbMin; $('dbMinVal').textContent = S.dbMin;
+    $('scanStart').value = S.scanStart;
+    $('scanStop').value = S.scanStop;
+    $('scanGain').value = S.scanGain; $('scanGainVal').textContent = S.scanGain + ' dB';
+    $('zoom').value = S.zoom;
+    $('app').classList.toggle('nomenu', !S.menu);
+    updateMeter();
+    updatePanel();
+  }
+
+  function bindControls() {
+    fillSelect($('sampleRate'), SAMPLE_RATES, (v) => fmtRate(v) + (v > 6e6 ? ' (USB limit)' : ''));
+    fillSelect($('rfBw'), RF_BWS, (v) => (v ? fmtHz(v, 1) : 'Auto'));
+
+    const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
+
+    on('btnConnect', 'click', () => (pluto ? disconnect() : connect(true)));
+    on('btnPlay', 'click', () => (state === 'live' ? stopStream() : state === 'sweep' ? stopSweep().then(startLive) : startLive()));
+    on('btnMenu', 'click', () => {
+      if (window.matchMedia('(max-width: 760px)').matches) $('app').classList.toggle('menu-open');
+      else { S.menu = !S.menu; $('app').classList.toggle('nomenu', !S.menu); save(); }
+      setTimeout(resize, 0);
+    });
+
+    on('sampleRate', 'change', async (e) => {
+      S.sampleRate = +e.target.value;
+      updatePanel();
+      save();
+      wfRows.length = 0;
+      workerConfig();
+      await restartIfLive();
+      setVfo(S.vfo);
+      setStatus();
+    });
+    on('rfBw', 'change', async (e) => {
+      S.rfBw = +e.target.value;
+      save();
+      if (pluto && state === 'live') pluto.setBandwidth(rfBandwidth()).catch((err) => toast(err.message));
+    });
+    on('gainMode', 'change', async (e) => {
+      S.gainMode = e.target.value;
+      syncControls();
+      save();
+      if (pluto && state !== 'sweep') {
+        try {
+          await pluto.setGainMode(S.gainMode);
+          if (S.gainMode === 'manual') await pluto.setGain(S.gain);
+        } catch (err) { toast(err.message); }
+      }
+    });
+    on('ppm', 'change', async (e) => {
+      S.ppm = clamp(Math.round((+e.target.value || 0) * 10) / 10, -100, 100);
+      e.target.value = S.ppm;
+      save();
+      if (!pluto) return;
+      await applyPpm();
+      // The driver recomputes dividers from the new reference on the next write.
+      if (state !== 'sweep') {
+        await pluto.setSampleRate(S.sampleRate).catch(() => {});
+        await pluto.setFrequency(curLo).catch(() => {});
+      }
+    });
+    on('meterCal', 'change', (e) => {
+      S.meterCal = clamp(Math.round((+e.target.value || 0) * 2) / 2, -60, 60);
+      e.target.value = S.meterCal;
+      updateMeter();
+      save();
+    });
+    on('gain', 'input', (e) => {
+      S.gain = +e.target.value;
+      curGain = S.gain;
+      updatePanel();
+      $('gainVal').textContent = S.gain + ' dB';
+      save();
+      if (pluto && state !== 'sweep' && S.gainMode === 'manual') pluto.setGain(S.gain).catch(() => {});
+    });
+
+    document.querySelectorAll('#modes button').forEach((b) => b.addEventListener('click', () => {
+      S.mode = b.dataset.mode;
+      syncControls();
+      workerConfig();
+      setVfo(S.vfo);
+      save();
+    }));
+    on('bandwidth', 'change', (e) => {
+      const [mn, mx] = BW_LIMITS[S.mode];
+      setBandwidth(clamp((+e.target.value || 0) * 1e3, mn, mx));
+    });
+    on('snap', 'change', (e) => { mode().snap = +e.target.value; S.fine = false; updatePanel(); save(); });
+    on('deemph', 'change', (e) => { mode().deemph = +e.target.value; workerConfig(); save(); });
+    on('stereo', 'change', (e) => { S.stereo = e.target.checked; workerConfig(); save(); });
+    on('squelchOn', 'change', (e) => { S.squelchOn = e.target.checked; workerConfig(); updateMeter(); updatePanel(); save(); });
+    on('squelch', 'input', (e) => {
+      S.squelch = +e.target.value;
+      $('squelchVal').textContent = S.squelch;
+      workerConfig(); updateMeter(); save();
+    });
+
+    on('fftSize', 'change', (e) => { S.fftSize = +e.target.value; wfRows.length = 0; workerConfig(); save(); });
+    on('fps', 'input', (e) => { S.fps = +e.target.value; $('fpsVal').textContent = S.fps; workerConfig(); save(); });
+    on('window', 'change', (e) => { S.window = e.target.value; workerConfig(); save(); });
+    on('smoothing', 'input', (e) => {
+      S.smoothing = +e.target.value;
+      $('smoothingVal').textContent = S.smoothing.toFixed(2);
+      workerConfig(); save();
+    });
+    on('colormap', 'change', (e) => { S.colormap = e.target.value; lut = buildLut(S.colormap); dirty = true; save(); });
+    on('dbMax', 'input', (e) => {
+      S.dbMax = Math.max(+e.target.value, S.dbMin + 5);
+      $('dbMaxVal').textContent = S.dbMax;
+      dirty = true; save();
+    });
+    on('dbMin', 'input', (e) => {
+      S.dbMin = Math.min(+e.target.value, S.dbMax - 5);
+      $('dbMinVal').textContent = S.dbMin;
+      dirty = true; save();
+    });
+    on('zoom', 'input', (e) => { S.zoom = +e.target.value; dirty = true; save(); });
+
+    on('scanPreset', 'change', (e) => {
+      if (!e.target.value) return;
+      const [a, b] = e.target.value.split(',').map(Number);
+      S.scanStart = a; S.scanStop = b;
+      syncControls(); save();
+    });
+    on('scanStart', 'change', (e) => { S.scanStart = +e.target.value; $('scanPreset').value = ''; save(); });
+    on('scanStop', 'change', (e) => { S.scanStop = +e.target.value; $('scanPreset').value = ''; save(); });
+    on('scanGain', 'input', (e) => {
+      S.scanGain = +e.target.value;
+      $('scanGainVal').textContent = S.scanGain + ' dB';
+      save();
+      if (pluto && state === 'sweep') pluto.setGain(S.scanGain).catch(() => {});
+    });
+    on('btnScan', 'click', () => (state === 'sweep' ? stopSweep() : startSweep()));
+
+    // Spectrum / waterfall splitter.
+    const split = $('splitter');
+    split.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      split.setPointerCapture(e.pointerId);
+      split.classList.add('drag');
+      const plots = $('plots').getBoundingClientRect();
+      const grab = e.clientY - (plots.top + S.specFrac * plots.height);
+      const move = (ev) => {
+        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9);
+        specCanvas.style.height = S.specFrac * 100 + '%';
+        resize();
+      };
+      const up = () => {
+        split.classList.remove('drag');
+        split.removeEventListener('pointermove', move);
+        split.removeEventListener('pointerup', up);
+        split.removeEventListener('pointercancel', up);
+        save();
+      };
+      split.addEventListener('pointermove', move);
+      split.addEventListener('pointerup', up);
+      split.addEventListener('pointercancel', up);
+    });
+    // Double-click restores the default split.
+    split.addEventListener('dblclick', () => {
+      S.specFrac = DEFAULTS.specFrac;
+      specCanvas.style.height = S.specFrac * 100 + '%';
+      resize();
+      save();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target.matches('input, select, textarea')) return;
+      const step = mode().snap || 1000;
+      if (e.code === 'Space') { e.preventDefault(); if (pluto) $('btnPlay').click(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); setVfo(snap(S.vfo) + step * (e.shiftKey ? 10 : 1)); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); setVfo(snap(S.vfo) - step * (e.shiftKey ? 10 : 1)); }
+    });
+
+    $('introClose').addEventListener('click', () => { $('intro').hidden = true; S.introSeen = true; save(); });
+  }
+
+  // ---------------- installable app ----------------
+  // Only the GitHub Pages build links a manifest; file:// pages skip this.
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) toast('新しいバージョンがあります。再読み込みすると更新されます', 'info');
+    });
+    let installEvt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installEvt = e;
+      $('btnInstall').hidden = false;
+    });
+    $('btnInstall').addEventListener('click', async () => {
+      if (!installEvt) return;
+      installEvt.prompt();
+      await installEvt.userChoice.catch(() => {});
+      installEvt = null;
+      $('btnInstall').hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { $('btnInstall').hidden = true; });
+  }
+
+  // Read-only hook for tools/browser-check.mjs.
+  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; } };
+
+  // ---------------- init ----------------
+  buildFreq();
+  buildBands();
+  buildPanel();
+  updateBands();
+  bindControls();
+  syncControls();
+  renderFreq();
+  setStatus();
+  specCanvas.style.height = S.specFrac * 100 + '%';
+  attachPointer(specCanvas);
+  attachPointer(ovCanvas);
+  new ResizeObserver(resize).observe($('plots'));
+  resize();
+  workerConfig();
+  requestAnimationFrame(frame);
+  if (!S.introSeen) $('intro').hidden = false;
+  if (!navigator.usb) {
+    toast('このブラウザは WebUSB に対応していません。Chrome または Edge で開いてください。');
+  } else {
+    connect(false);
+  }
+})();
+</script>
+</body>
+</html>

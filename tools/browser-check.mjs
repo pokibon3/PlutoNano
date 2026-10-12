@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 
 const out = process.argv[2] || 'shot.png';
 const mock = process.argv.includes('--mock');
-const page = 'file://' + resolve('dist/PlutoNano.html');
+const page = process.env.PAGE || 'file://' + resolve('dist/PlutoNano.html');
 const chrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const prof = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'cdp-'));
 const proc = spawn(chrome, ['--headless=new', '--remote-debugging-port=9333', `--user-data-dir=${prof}`,
@@ -47,11 +47,22 @@ if (mock) {
   // The app starts receiving on connect; only press play if it did not.
   await ev(`document.getElementById('btnPlay').classList.contains('on') || document.getElementById('btnPlay').click()`);
   await sleep(4000);
-  console.log('status:', await ev(`document.getElementById('statusText').textContent`));
+  console.log('state:', await ev(`window.__plutoNano.state`));
   console.log('meter:', await ev(`document.getElementById('meterText').textContent`));
 }
+if (process.env.INSTALL) {
+  // PWA checks: manifest errors and installability as Chrome sees them.
+  const m = (await send('Page.getAppManifest')).result;
+  console.log('manifest errors:', JSON.stringify(m.errors || []));
+  console.log('installability:', JSON.stringify((await send('Page.getInstallabilityErrors')).result.installabilityErrors));
+  console.log('service worker:', await ev(`navigator.serviceWorker.ready.then((r) => r.active && r.active.state)`));
+}
 if (process.env.EVAL_FILE) console.log("eval:", await ev(readFileSync(process.env.EVAL_FILE, "utf8")));
-const shot = await send('Page.captureScreenshot', { format: 'png' });
+// CLIP=x,y,w,h captures just that region at 2x.
+const clip = process.env.CLIP && process.env.CLIP.split(',').map(Number);
+const shot = await send('Page.captureScreenshot', clip
+  ? { format: 'png', clip: { x: clip[0], y: clip[1], width: clip[2], height: clip[3], scale: 2 } }
+  : { format: 'png' });
 writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
 console.log(logs.length ? logs.join('\n') : 'no console output');
 ws.close();

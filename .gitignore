@@ -7,3 +7,5 @@ third_party/
 # Third-party case model files
 stl/
 *.png
+!pwa/*.png
+!docs/*.png

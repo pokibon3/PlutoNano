@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="75%">
+      <stop offset="0" stop-color="#0f3346"/>
+      <stop offset="1" stop-color="#03111a"/>
+    </radialGradient>
+  </defs>
+  <!-- Full-bleed background so the icon also works as a maskable icon. -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- S-meter scale centred on (256, 400), radius 200: S1..S9 cyan, then the blue "over" section. -->
+  <path d="M 82.8 300 A 200 200 0 0 1 297.6 204.4" fill="none" stroke="#62e2ff" stroke-width="14" stroke-linecap="round"/>
+  <path d="M 297.6 204.4 A 200 200 0 0 1 429.2 300" fill="none" stroke="#7f86ff" stroke-width="26" stroke-linecap="round"/>
+  <g stroke="#62e2ff" stroke-width="10" stroke-linecap="round">
+    <line x1="114.6" y1="258.6" x2="93.4" y2="237.4"/>
+    <line x1="156" y1="226.8" x2="141" y2="200.8"/>
+    <line x1="204.2" y1="206.8" x2="196.5" y2="177.8"/>
+    <line x1="256" y1="200" x2="256" y2="170"/>
+  </g>
+  <!-- Needle from the pivot below. -->
+  <line x1="256" y1="400" x2="372" y2="199" stroke="#f05a28" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="256" cy="400" r="34" fill="#1d2a33"/>
+</svg>

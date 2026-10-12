@@ -66,6 +66,8 @@ run('NFM', (t) => [1, 2 * Math.PI * 3e3 * Math.sin(2 * Math.PI * 700 * t) / fs],
 run('AM', (t) => [1 + 0.6 * Math.sin(2 * Math.PI * 1200 * t), 0], 10e3);
 run('USB', () => [1, 2 * Math.PI * 1500 / fs], 2.8e3);
 run('LSB', () => [1, -2 * Math.PI * 900 / fs], 2.8e3);
+run('CW', () => [1, 0], 500); // carrier on the VFO -> 700 Hz tone
+run('CW', () => [1, 2 * Math.PI * 1500 / fs], 500); // 1.5 kHz off: outside the filter
 
 // Spectrum: tone at +300 kHz lands on the right bin.
 const sp = new DSP.Spectrum(8192, 'bh');

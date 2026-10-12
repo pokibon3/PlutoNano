@@ -225,7 +225,9 @@
   }
 
   // Complete receive chain: IQ at fs -> interleaved stereo audio at audioRate.
-  // mode: WFM | NFM | AM | USB | LSB
+  // mode: WFM | NFM | AM | USB | LSB | CW
+  // CW: the carrier at the VFO is heard as a CW_PITCH tone.
+  const CW_PITCH = 700;
   class Receiver {
     constructor(opts) {
       this.audioRate = opts.audioRate || 48000;
@@ -244,10 +246,11 @@
         stereo: o.stereo ?? this.stereo ?? true,
       });
       const fs = this.fs, bw = this.bandwidth, mode = this.mode;
-      const ssb = mode === 'USB' || mode === 'LSB';
+      const ssb = mode === 'USB' || mode === 'LSB', cw = mode === 'CW';
 
       // WFM keeps the whole MPX baseband (stereo subcarrier up to 53 kHz).
-      const ifTarget = Math.min(fs, Math.max(1.25 * bw, mode === 'WFM' ? 150e3 : 50e3));
+      // CW uses a low IF so its narrow filter stays short.
+      const ifTarget = Math.min(fs, cw ? 12e3 : Math.max(1.25 * bw, mode === 'WFM' ? 150e3 : 50e3));
       const D1 = Math.max(1, Math.floor(fs / (4 * ifTarget)));
       const fs1 = fs / D1;
       const D2 = Math.max(1, Math.floor(fs1 / ifTarget));
@@ -257,17 +260,17 @@
       this.stage1 = D1 > 1
         ? new CDecim(lowpass(fs, ifTarget / 2, Math.max(fs1 - ifTarget, ifTarget * 0.5), 'blackman'), D1)
         : null;
-      const half = ssb ? bw / 2 : bw / 2;
-      this.stage2 = new CDecim(lowpass(fs1, half, Math.max(half * 0.2, 500), 'hamming'), D2);
+      const half = bw / 2;
+      this.stage2 = new CDecim(lowpass(fs1, half, cw ? Math.max(bw * 0.3, 100) : Math.max(half * 0.2, 500), 'hamming'), D2);
 
       // SSB: centre the sideband before filtering, shift back after.
       this.ssbShift = mode === 'USB' ? bw / 2 : mode === 'LSB' ? -bw / 2 : 0;
       this.mixer.setFreq(this.offset + this.ssbShift, fs);
       this.bfo = new Mixer();
-      this.bfo.setFreq(-this.ssbShift, this.ifRate);
+      this.bfo.setFreq(cw ? -CW_PITCH : -this.ssbShift, this.ifRate);
 
       const audioCut = Math.min(
-        mode === 'WFM' ? 15e3 : mode === 'NFM' ? Math.min(bw / 2, 8e3) : ssb ? bw : bw / 2,
+        mode === 'WFM' ? 15e3 : mode === 'NFM' ? Math.min(bw / 2, 8e3) : ssb ? bw : cw ? CW_PITCH + bw / 2 + 300 : bw / 2,
         this.audioRate * 0.45);
       const Da = Math.max(1, Math.floor(this.ifRate / this.audioRate));
       // WFM: the filter must also reject the 19 kHz pilot.
@@ -365,7 +368,7 @@
         }
         this.blend = g;
       } else {
-        if (mode === 'AM' || mode === 'USB' || mode === 'LSB') this.agc.process(L, k);
+        if (mode !== 'NFM' && mode !== 'WFM') this.agc.process(L, k);
         R.set(L.subarray(0, k));
       }
       if (this.deAlpha) {

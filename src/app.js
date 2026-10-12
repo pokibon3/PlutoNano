@@ -13,8 +13,9 @@
     AM: { bandwidth: 10e3, snap: 1000, deemph: 0 },
     USB: { bandwidth: 2.8e3, snap: 100, deemph: 0 },
     LSB: { bandwidth: 2.8e3, snap: 100, deemph: 0 },
+    CW: { bandwidth: 500, snap: 100, deemph: 0 },
   };
-  const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3] };
+  const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
   const SAMPLE_RATES = [1.024e6, 1.536e6, 2.048e6, 2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6];
   const RF_BWS = [0, 0.2e6, 0.5e6, 1e6, 2e6, 4e6, 6e6, 10e6, 20e6, 56e6];
 
@@ -51,6 +52,7 @@
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, fine: false, autoTs: true,
   };
 
   // ---------------- settings ----------------
@@ -214,23 +216,15 @@
 
   function setStatus() {
     updateBands();
-    const parts = [];
-    if (!pluto) parts.push('Not connected');
-    else {
-      parts.push('PlutoSDR');
-      if (state === 'live') parts.push(fmtRate(S.sampleRate), 'LO ' + fmtHz(curLo, 3));
-      else if (state === 'sweep') parts.push('Scanning');
-      else parts.push('Stopped');
-    }
-    $('statusText').textContent = parts.join(' · ');
     $('btnConnect').textContent = pluto ? 'Disconnect' : 'Connect';
     $('btnConnect').classList.toggle('primary', !pluto);
     $('btnPlay').disabled = !pluto;
     $('btnPlay').classList.toggle('on', state === 'live');
-    $('btnPlay').innerHTML = state === 'live' ? '&#9632;' : '&#9654;';
+    $('btnPlay').innerHTML = state === 'live' ? '<span class="ic">&#9632;</span> Stop' : '<span class="ic">&#9654;</span> Start';
     $('btnScan').disabled = !pluto;
     $('btnScan').textContent = state === 'sweep' ? 'Stop scan' : 'Start scan';
     $('btnScan').classList.toggle('active', state === 'sweep');
+    updateMeter();
     $('loVal').textContent = pluto ? fmtHz(curLo, 6) : '—';
   }
 
@@ -240,11 +234,11 @@
       return;
     }
     try {
-      let p = await window.Pluto.getPaired();
-      if (!p) {
-        if (!interactive) return;
-        p = await window.Pluto.request();
-      }
+      // The Connect button always shows the device chooser; only the
+      // automatic connect at startup reuses an already permitted device.
+      let p;
+      if (interactive) p = await window.Pluto.request();
+      else if (!(p = await window.Pluto.getPaired())) return;
       await p.open();
       pluto = p;
       const serial = p.usb.serialNumber ? ' (' + p.usb.serialNumber.slice(-8) + ')' : '';
@@ -390,6 +384,8 @@
       try {
         const r = await pluto.getRssi();
         const g = await pluto.getGain();
+        curGain = g;
+        updatePanel();
         $('rssiVal').textContent = `${r.toFixed(1)} dB · gain ${g.toFixed(0)} dB`;
         if (S.gainMode !== 'manual') $('gainVal').textContent = g.toFixed(0) + ' dB';
       } catch (e) { /* transient */ }
@@ -434,6 +430,7 @@
       btn.textContent = b.name;
       btn.title = b.title;
       btn.dataset.band = b.name;
+      btn.className = 'key';
       btn.addEventListener('click', () => selectBand(b));
       el.appendChild(btn);
     }
@@ -505,18 +502,32 @@
 
   // ---------------- frequency display ----------------
   const DIGITS = 10;
+  // Seven-segment digits drawn as SVG: segments a..g in a SEG_W x SEG_H box.
+  const SEG_W = 56, SEG_H = 80, SEG_T = 9, SEG_G = 1.2;
+  const SEGS = (() => {
+    const t = SEG_T, h = t / 2, g = SEG_G, pts = (a) => a.map((v) => v.toFixed(1)).join(' ');
+    const hz = (y) => pts([h + g, y, t + g, y - h, SEG_W - t - g, y - h, SEG_W - h - g, y,
+      SEG_W - t - g, y + h, t + g, y + h]);
+    const vt = (x, y0, y1) => pts([x, y0 + g, x + h, y0 + h + g, x + h, y1 - h - g, x, y1 - g,
+      x - h, y1 - h - g, x - h, y0 + h + g]);
+    const mid = SEG_H / 2, L = h, R = SEG_W - h;
+    return [hz(h), vt(R, h, mid), vt(R, mid, SEG_H - h), hz(SEG_H - h), vt(L, mid, SEG_H - h), vt(L, h, mid), hz(mid)];
+  })();
+  const SEG_ON = ['abcdef', 'bc', 'abdeg', 'abcdg', 'bcfg', 'acdfg', 'acdefg', 'abc', 'abcdefg', 'abcdfg'];
+  const SEG_SVG = `<svg viewBox="0 0 ${SEG_W} ${SEG_H}">` +
+    SEGS.map((p) => `<polygon points="${p}"/>`).join('') + '</svg>';
   function buildFreq() {
     const el = $('freq');
     el.innerHTML = '';
     for (let i = DIGITS - 1; i >= 0; i--) {
       const d = document.createElement('span');
-      d.className = 'd';
+      d.className = 'd' + (i < 3 ? ' small' : '');
       d.dataset.k = i;
+      d.innerHTML = SEG_SVG;
       el.appendChild(d);
       if (i % 3 === 0 && i > 0) {
         const s = document.createElement('span');
         s.className = 'sep';
-        s.textContent = '.';
         el.appendChild(s);
       }
     }
@@ -571,25 +582,505 @@
 
   function renderFreq() {
     const s = String(Math.round(S.vfo)).padStart(DIGITS, '0');
-    const digits = $('freq').querySelectorAll('.d');
-    let lead = true;
-    digits.forEach((d, i) => {
-      const ch = s[i];
-      if (ch !== '0') lead = false;
-      d.textContent = ch;
-      d.classList.toggle('dim', lead);
-    });
+    let lead = true, i = 0;
+    for (const el of $('freq').children) {
+      if (el.classList.contains('sep')) { el.classList.toggle('off', lead); continue; }
+      const ch = s[i++];
+      // Leading zeros stay dark, but always show at least 1 MHz digit.
+      if (ch !== '0' || i > DIGITS - 7) lead = false;
+      const on = lead ? '' : SEG_ON[+ch];
+      el.querySelectorAll('polygon').forEach((p, j) => p.classList.toggle('on', on.includes('abcdefg'[j])));
+    }
   }
 
+  // ---------------- S-meter ----------------
+  // Channel power in dBm ~ dBFS - RX gain + calibration. S9 = -93 dBm
+  // (VHF/UHF convention), 6 dB per S unit; above S9 the scale is in dB.
+  const S9_DBM = -93;
+  let curGain = S.gain;
+  const toDbm = (dbfs) => dbfs - curGain + S.meterCal;
+  // Scale position 0..1: S0..S9 fill the left 60 %, S9..+60 dB the rest.
+  function meterPos(dbm) {
+    if (dbm <= S9_DBM) return clamp((dbm - (S9_DBM - 54)) / 54, 0, 1) * 0.6;
+    return 0.6 + clamp((dbm - S9_DBM) / 60, 0, 1) * 0.4;
+  }
+  function sText(dbm) {
+    if (dbm <= S9_DBM) return 'S' + clamp(Math.floor((dbm - S9_DBM + 54) / 6), 0, 9);
+    return 'S9+' + Math.round(dbm - S9_DBM);
+  }
+  const meter = { target: 0, x: 0, v: 0, peak: 0, peakAt: 0, sq: null, key: '', colors: null };
+
   function updateMeter() {
-    const db = state === 'live' ? levelDb : -200;
-    const pct = clamp((db + 100) / 100, 0, 1) * 100;
-    $('meterFill').style.width = pct + '%';
-    $('meterText').textContent = db > -199 ? db.toFixed(1) + ' dB' : '-- dB';
+    const live = state === 'live' && levelDb > -199;
+    const dbm = toDbm(levelDb);
+    meter.target = live ? meterPos(dbm) : 0;
+    $('meterText').textContent = live ? dbm.toFixed(1) + ' dBm' : '--- dBm';
+    $('meterText').title = live ? `${levelDb.toFixed(1)} dBFS · gain ${Math.round(curGain)} dB` : '';
+    $('meterS').textContent = live ? sText(dbm) : 'S-';
     $('stereoInd').classList.toggle('on', state === 'live' && S.mode === 'WFM' && stereoLocked);
-    const sq = $('meterSq');
-    sq.style.display = S.squelchOn ? 'block' : 'none';
-    sq.style.left = clamp((S.squelch + 100) / 100, 0, 1) * 100 + '%';
+    meter.sq = S.squelchOn ? meterPos(toDbm(S.squelch)) : null;
+  }
+
+  // Needle: slightly under-damped spring; bar: fast attack, slow release
+  // with a peak hold.
+  function meterTick(dt, now) {
+    const p = meter.target;
+    if (S.meterStyle === 'needle') {
+      meter.v += (160 * (p - meter.x) - 16 * meter.v) * dt;
+      meter.x = clamp(meter.x + meter.v * dt, -0.02, 1.03);
+    } else {
+      meter.x += (p - meter.x) * (1 - Math.exp(-dt / (p > meter.x ? 0.03 : 0.3)));
+      meter.v = 0;
+    }
+    if (meter.x >= meter.peak) { meter.peak = meter.x; meter.peakAt = now; }
+    else if (now - meter.peakAt > 1500) meter.peak = Math.max(meter.x, meter.peak - dt * 0.6);
+    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S.meterCal,
+      smeterCanvas.clientWidth, smeterCanvas.clientHeight, dpr].join();
+    if (key !== meter.key) { meter.key = key; drawMeter(); }
+  }
+
+  const smeterCanvas = $('smeter');
+  function fitCanvas(c) {
+    const w = c.clientWidth, h = c.clientHeight;
+    const W = Math.round(w * dpr), H = Math.round(h * dpr);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return [ctx, w, h];
+  }
+  function panelColors() {
+    const cs = getComputedStyle($('panel'));
+    const g = (n) => cs.getPropertyValue(n).trim();
+    return { lcd: g('--lcd'), dim: g('--lcd-dim'), ghost: g('--lcd-ghost'), over: g('--over'), needle: g('--needle') };
+  }
+
+  const S_MARKS = [[1, '1'], [3, '3'], [5, '5'], [7, '7'], [9, '9']].map(([n, t]) => [n / 9 * 0.6, t])
+    .concat([[20, '+20'], [40, '+40'], [60, '+60']].map(([d, t]) => [0.6 + d / 60 * 0.4, t]));
+  const DBM_MARKS = [-140, -120, -100, -80, -60, -40];
+
+  function drawMeter() {
+    const [ctx, w, h] = fitCanvas(smeterCanvas);
+    if (!w || !h) return;
+    const c = meter.colors || (meter.colors = panelColors());
+    const font = (px, wgt = 600) => `${wgt} ${px}px "Helvetica Neue", Arial, sans-serif`;
+    const tick = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (S.meterStyle === 'needle') {
+      // IC-7300 style analog meter on the LCD: one needle over stacked
+      // scales (S units, dBm, and dBFS at the current gain).
+      const ink = '#eef0f4', blue = '#7f86ff', needleCol = '#f05a28';
+      const ital = (px, wgt = 600) => `italic ${wgt} ${px}px "Helvetica Neue", Arial, sans-serif`;
+      const cx = w / 2, cy = h * 2.3, R1 = cy - 30, A = Math.asin((w * 0.39) / R1);
+      const ang = (p) => -Math.PI / 2 - A + p * 2 * A;
+      const pt = (p, r) => [cx + Math.cos(ang(p)) * r, cy + Math.sin(ang(p)) * r];
+      // Title plate.
+      const tw = 62;
+      const tg = ctx.createLinearGradient(0, 0, 0, 11);
+      tg.addColorStop(0, '#4b55d8'); tg.addColorStop(1, '#2a2f8a');
+      ctx.fillStyle = tg;
+      ctx.fillRect(cx - tw / 2, 0, tw, 11);
+      ctx.font = `700 8px "Helvetica Neue", Arial, sans-serif`;
+      ctx.fillStyle = '#ffffff';
+      ctx.letterSpacing = '1px';
+      ctx.fillText('S METER', cx, 6);
+      ctx.letterSpacing = '0px';
+      // Draws one arc with ticks; marks = [[pos, label, major, colour]].
+      const scale = (R, marks, split) => {
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = ink;
+        ctx.beginPath(); ctx.arc(cx, cy, R, ang(0), ang(split ?? 1)); ctx.stroke();
+        if (split != null) {
+          ctx.strokeStyle = blue;
+          ctx.lineWidth = 2.4;
+          ctx.beginPath(); ctx.arc(cx, cy, R + 0.6, ang(split), ang(1)); ctx.stroke();
+        }
+        for (const [p, t, major, col] of marks) {
+          if (p < -0.001 || p > 1.001) continue;
+          ctx.strokeStyle = ctx.fillStyle = col || ink;
+          ctx.lineWidth = major ? 1.3 : 0.9;
+          tick(...pt(p, R), ...pt(p, R + (major ? 5 : 3)));
+          if (t) ctx.fillText(t, ...pt(p, R + 11));
+        }
+      };
+      // S scale.
+      ctx.font = ital(10.5, 700);
+      const sMarks = [];
+      for (let n = 0; n <= 9; n++) sMarks.push([n / 9 * 0.6, n % 2 ? String(n) : '', n % 2 === 1]);
+      for (let d = 10; d <= 60; d += 10) sMarks.push([0.6 + d / 150, d % 20 ? '' : '+' + d, d % 20 === 0, blue]);
+      scale(R1, sMarks, 0.6);
+      ctx.font = ital(15, 800);
+      ctx.fillStyle = ink;
+      ctx.fillText('S', ...pt(-0.07, R1 + 6));
+      ctx.font = ital(8, 700);
+      ctx.fillStyle = blue;
+      ctx.fillText('dB', ...pt(1.0, R1 + 21));
+      // dBm scale.
+      const R2 = R1 - 25;
+      ctx.font = ital(8.5, 600);
+      const mMarks = [];
+      for (let d = -140; d <= -30; d += 10) mMarks.push([meterPos(d), d % 20 ? '' : String(d), d % 20 === 0]);
+      scale(R2, mMarks);
+      ctx.font = ital(8, 800);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'right';
+      ctx.fillText('dBm', ...pt(-0.01, R2 + 1).map((v, i) => v - (i ? 0 : 3)));
+      // dBFS scale, which moves with the RX gain.
+      const R3 = R2 - 25;
+      ctx.textAlign = 'center';
+      ctx.font = ital(8.5, 600);
+      const fMarks = [];
+      for (let d = -160; d <= 0; d += 10) {
+        // Only where the dBFS value lies on the S scale's range.
+        const m = toDbm(d);
+        if (m >= S9_DBM - 54 && m <= S9_DBM + 60) fMarks.push([meterPos(m), d % 20 ? '' : String(d), d % 20 === 0]);
+      }
+      scale(R3, fMarks);
+      ctx.font = ital(8, 800);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'right';
+      ctx.fillText('FS', ...pt(-0.01, R3 + 1).map((v, i) => v - (i ? 0 : 3)));
+      ctx.textAlign = 'center';
+      if (meter.sq !== null) {
+        ctx.fillStyle = blue;
+        ctx.beginPath(); ctx.arc(...pt(meter.sq, R1 - 4), 2, 0, 2 * Math.PI); ctx.fill();
+      }
+      // Needle from below the window, with a faint glow.
+      const t = ang(meter.x), ux = Math.cos(t), uy = Math.sin(t);
+      const r0 = cy - h - 2, r1 = R1 + 7;
+      ctx.strokeStyle = ctx.shadowColor = needleCol;
+      ctx.shadowBlur = 3;
+      ctx.lineWidth = 2;
+      tick(cx + ux * r0, cy + uy * r0, cx + ux * r1, cy + uy * r1);
+      ctx.shadowBlur = 0;
+      return;
+    }
+    // LCD bar meter: scale with tick rail above a fine segmented bar.
+    const mono = (px, wgt = 600) => `${wgt} ${px}px ui-monospace, Menlo, monospace`;
+    const x0 = 16, bw = w - 34, rail = h * 0.42, by = rail + 7, bh = Math.round(h * 0.26), N = 48;
+    const sw = bw / N;
+    ctx.font = mono(11, 700);
+    ctx.fillStyle = c.lcd;
+    ctx.fillText('S', 7, rail - 12);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.lcd;
+    tick(x0, rail, x0 + bw * 0.6, rail);
+    ctx.strokeStyle = c.over;
+    tick(x0 + bw * 0.6, rail, x0 + bw, rail);
+    for (let n = 1; n <= 9; n++) {
+      const x = x0 + n / 9 * 0.6 * bw;
+      ctx.strokeStyle = c.lcd;
+      tick(x, rail, x, rail - (n % 2 ? 5 : 3));
+    }
+    for (let d = 10; d <= 60; d += 10) {
+      const x = x0 + (0.6 + d / 150) * bw;
+      ctx.strokeStyle = c.over;
+      tick(x, rail, x, rail - (d % 20 ? 3 : 5));
+    }
+    for (const [p, t] of S_MARKS) {
+      ctx.font = p > 0.6 ? mono(9.5, 600) : mono(11, 700);
+      ctx.fillStyle = p > 0.6 ? c.over : c.lcd;
+      ctx.fillText(t, x0 + p * bw, rail - 13);
+    }
+    const lit = meter.x * N, pk = Math.min(N - 1, Math.floor(meter.peak * N));
+    for (let i = 0; i < N; i++) {
+      const over = (i + 0.5) / N > 0.6;
+      const on = i + 0.5 <= lit || (i === pk && meter.peak > 0.01);
+      ctx.fillStyle = on ? (over ? c.over : c.lcd) : c.ghost;
+      ctx.fillRect(x0 + i * sw + 0.75, by, sw - 1.5, bh);
+    }
+    if (meter.sq !== null) {
+      const x = x0 + meter.sq * bw;
+      ctx.fillStyle = c.dim;
+      ctx.beginPath(); ctx.moveTo(x, by + bh + 2); ctx.lineTo(x - 4, by + bh + 8); ctx.lineTo(x + 4, by + bh + 8); ctx.fill();
+    }
+  }
+
+  // ---------------- main dial ----------------
+  // 50 detents per turn; clockwise tunes up. A fast flick keeps spinning
+  // with friction, and AUTO multiplies the step by 10 when turned fast.
+  const DETENTS = 50, DETENT = 2 * Math.PI / DETENTS;
+  const dialCanvas = $('dial');
+  const dial = { angle: -Math.PI / 2, acc: 0, v: 0, fly: false, grab: null, total: 0, samples: [], key: '' };
+
+  function tuneBy(n, speed) {
+    if (state === 'sweep' || !n) return;
+    const step = mode().snap || 1000;
+    if (S.fine) setVfo(S.vfo + n * Math.max(1, step / 10));
+    else setVfo(snap(S.vfo) + n * step * (S.autoTs && speed > 40 ? 10 : 1));
+  }
+  function dialRotate(d, speed) {
+    dial.angle = (dial.angle + d) % (2 * Math.PI);
+    dial.acc += d / DETENT;
+    const n = Math.trunc(dial.acc);
+    dial.acc -= n;
+    tuneBy(n, speed);
+  }
+  function dialTick(dt) {
+    if (dial.fly) {
+      dialRotate(dial.v * dt, Math.abs(dial.v) / DETENT);
+      dial.v *= Math.exp(-dt * 1.6);
+      if (Math.abs(dial.v) < 0.5) dial.fly = false;
+    }
+    const key = [dial.angle.toFixed(4), dialCanvas.clientWidth, dpr].join();
+    if (key !== dial.key) { dial.key = key; drawDial(); }
+    for (const k of knobs) {
+      const kk = [k.get().toFixed(4), S.panelTheme, k.canvas.clientWidth, dpr].join();
+      if (kk !== k.key) { k.key = kk; drawKnob(k); }
+    }
+  }
+
+  // ---------------- AF / SQL knobs ----------------
+  // Value 0..1 over a 270 degree sweep; drag up/down or use the wheel.
+  const knobs = [];
+  const knobAngle = (v) => 0.75 * Math.PI + v * 1.5 * Math.PI;
+  function makeKnob(canvas, label, name, get, set, fmt) {
+    const k = { canvas, get, key: '' };
+    let y0 = null, v0 = 0;
+    const show = (on) => { $(label).textContent = on ? fmt() : name; };
+    const apply = (v) => { set(clamp(v, 0, 1)); show(true); };
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      y0 = e.clientY; v0 = get();
+      show(true);
+    });
+    canvas.addEventListener('pointermove', (e) => { if (y0 !== null) apply(v0 + (y0 - e.clientY) / 150); });
+    const up = () => { y0 = null; show(false); };
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    let wheelTimer = 0;
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      apply(get() - e.deltaY * (e.deltaMode === 1 ? 33 : 1) * 0.0004);
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => show(false), 800);
+    }, { passive: false });
+    knobs.push(k);
+  }
+
+  function drawKnob(k) {
+    const [ctx, w, h] = fitCanvas(k.canvas);
+    if (!w || !h) return;
+    const c = meter.colors || (meter.colors = panelColors());
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 7, v = k.get(), a = knobAngle(v);
+    // Value arc around the knob.
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = c.ghost;
+    ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, knobAngle(0), knobAngle(1)); ctx.stroke();
+    if (v > 0.001) {
+      ctx.strokeStyle = c.lcd;
+      ctx.shadowColor = c.lcd; ctx.shadowBlur = 4;
+      ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, knobAngle(0), a); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(cx + 0.5, cy + 1.5, R, 0, 2 * Math.PI); ctx.fill();
+    const g = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+    g.addColorStop(0, '#55555d'); g.addColorStop(1, '#141417');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 28; i++) {
+      const t = a + i * 2 * Math.PI / 28, co = Math.cos(t), si = Math.sin(t);
+      ctx.strokeStyle = `rgba(255,255,255,${(0.06 + 0.12 * Math.max(0, -(co + si) / Math.SQRT2)).toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(cx + co * R * 0.8, cy + si * R * 0.8); ctx.lineTo(cx + co * R * 0.98, cy + si * R * 0.98); ctx.stroke();
+    }
+    ctx.strokeStyle = '#f0f0f4';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * R * 0.2, cy + Math.sin(a) * R * 0.2); ctx.lineTo(cx + Math.cos(a) * R * 0.72, cy + Math.sin(a) * R * 0.72); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  function setVolume(v) {
+    S.volume = v;
+    if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
+    save();
+  }
+
+  // SQL knob: the bottom 3 % is OFF, the rest maps to -120..0 dBFS.
+  const SQL_OFF = 0.03;
+  function setSquelchKnob(v) {
+    S.squelchOn = v >= SQL_OFF;
+    if (S.squelchOn) S.squelch = Math.round(-120 + (v - SQL_OFF) / (1 - SQL_OFF) * 120);
+    $('squelchOn').checked = S.squelchOn;
+    $('squelch').value = S.squelch;
+    $('squelchVal').textContent = S.squelch;
+    workerConfig(); updateMeter(); updatePanel(); save();
+  }
+
+  function bindKnobs() {
+    makeKnob($('afKnob'), 'afLbl', 'AF', () => S.volume, setVolume, () => Math.round(S.volume * 100) + '%');
+    makeKnob($('sqlKnob'), 'sqlLbl', 'SQL',
+      () => (S.squelchOn ? SQL_OFF + (S.squelch + 120) / 120 * (1 - SQL_OFF) : 0),
+      setSquelchKnob, () => (S.squelchOn ? S.squelch + 'dB' : 'OFF'));
+  }
+
+  function drawDial() {
+    const [ctx, w, h] = fitCanvas(dialCanvas);
+    if (!w || !h) return;
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 4, a = dial.angle;
+    // Drop shadow and skirt.
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(cx + 1, cy + 3, R + 1, 0, 2 * Math.PI); ctx.fill();
+    let g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R);
+    g.addColorStop(0, '#2c2c32'); g.addColorStop(1, '#0d0d0f');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+    // Knurled ridges turn with the knob; those facing the top-left light are brighter.
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 80; i++) {
+      const t = a + i * 2 * Math.PI / 80, c = Math.cos(t), s = Math.sin(t);
+      const lit = 0.07 + 0.16 * Math.max(0, -(c + s) / Math.SQRT2);
+      ctx.strokeStyle = `rgba(255,255,255,${lit.toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(cx + c * R * 0.84, cy + s * R * 0.84); ctx.lineTo(cx + c * R * 0.97, cy + s * R * 0.97); ctx.stroke();
+    }
+    // Brushed-metal face; the reflections stay put while the knob turns.
+    const Rf = R * 0.8;
+    g = ctx.createConicGradient(-Math.PI / 4, cx, cy);
+    const metal = ['#62626b', '#2a2a2f', '#55555d', '#232327', '#62626b', '#2a2a2f', '#55555d', '#232327', '#62626b'];
+    metal.forEach((col, i) => g.addColorStop(i / (metal.length - 1), col));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, Rf, 0, 2 * Math.PI); ctx.fill();
+    g = ctx.createLinearGradient(cx - Rf, cy - Rf, cx + Rf, cy + Rf);
+    g.addColorStop(0, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, Rf, 0, 2 * Math.PI); ctx.stroke();
+    // Finger dimple: concave, so dark at the top-left and lit at the bottom-right.
+    const dr = R * 0.16, dx = cx + Math.cos(a) * R * 0.5, dy = cy + Math.sin(a) * R * 0.5;
+    g = ctx.createRadialGradient(dx - dr * 0.35, dy - dr * 0.35, dr * 0.1, dx, dy, dr);
+    g.addColorStop(0, '#0c0c0e'); g.addColorStop(0.8, '#2a2a30'); g.addColorStop(1, '#4a4a52');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(dx, dy, dr, 0, 2 * Math.PI); ctx.fill();
+    // Index mark on the skirt.
+    const c = meter.colors || (meter.colors = panelColors());
+    ctx.fillStyle = c.lcd;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * R * 0.905, cy + Math.sin(a) * R * 0.905, 1.8, 0, 2 * Math.PI); ctx.fill();
+  }
+
+  function bindDial() {
+    const angleOf = (e) => {
+      const r = dialCanvas.getBoundingClientRect();
+      const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2;
+      return { a: Math.atan2(y, x), dist: Math.hypot(x, y) };
+    };
+    dialCanvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dialCanvas.setPointerCapture(e.pointerId);
+      dial.fly = false;
+      dial.grab = angleOf(e).a;
+      dial.total = 0;
+      dial.samples = [{ t: performance.now(), a: 0 }];
+    });
+    dialCanvas.addEventListener('pointermove', (e) => {
+      if (dial.grab === null) return;
+      const { a, dist } = angleOf(e);
+      let d = a - dial.grab;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      dial.grab = a;
+      if (dist < 8) return; // the angle is unstable near the centre
+      const now = performance.now();
+      dial.total += d;
+      dial.samples.push({ t: now, a: dial.total });
+      while (dial.samples.length > 2 && now - dial.samples[0].t > 100) dial.samples.shift();
+      const s0 = dial.samples[0], dt = (now - s0.t) / 1000;
+      dialRotate(d, dt > 0 ? Math.abs(dial.total - s0.a) / dt / DETENT : 0);
+    });
+    const release = () => {
+      if (dial.grab === null) return;
+      dial.grab = null;
+      const now = performance.now();
+      const s = dial.samples.filter((x) => now - x.t < 120);
+      if (s.length < 2) return;
+      const dt = (s[s.length - 1].t - s[0].t) / 1000;
+      const v = dt > 0.01 ? (s[s.length - 1].a - s[0].a) / dt : 0;
+      if (Math.abs(v) > 6) { dial.v = clamp(v, -60, 60); dial.fly = true; }
+    };
+    dialCanvas.addEventListener('pointerup', release);
+    dialCanvas.addEventListener('pointercancel', release);
+    dialCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      dial.fly = false;
+      dialRotate(-e.deltaY * (e.deltaMode === 1 ? 33 : 1) / 100 * DETENT, 0);
+    }, { passive: false });
+  }
+
+  // ---------------- front panel ----------------
+  const STEPS = [10, 100, 1e3, 10e3, 12.5e3, 20e3, 25e3, 100e3];
+  const fmtStep = (v) => (v >= 1e6 ? +(v / 1e6).toFixed(3) + 'M' : v >= 1e3 ? +(v / 1e3).toFixed(2) + 'k' : String(v));
+  const GAIN_MODES = { manual: 'MGC', slow_attack: 'AGC-S', fast_attack: 'AGC-F', hybrid: 'AGC-H' };
+
+  function buildPanel() {
+    const el = $('steps');
+    const key = (label, title, fn) => {
+      const b = document.createElement('button');
+      b.className = 'key';
+      b.textContent = label;
+      b.title = title;
+      b.addEventListener('click', fn);
+      el.appendChild(b);
+      return b;
+    };
+    for (const v of STEPS) {
+      key(fmtStep(v), fmtStep(v) + 'Hz ステップ', () => {
+        mode().snap = v;
+        S.fine = false;
+        $('snap').value = v;
+        updatePanel();
+        save();
+      }).dataset.step = v;
+    }
+    key('FINE', 'ダイヤルをステップの 1/10 で細かく動かす', () => { S.fine = !S.fine; updatePanel(); save(); }).id = 'fineBtn';
+    key('AUTO', '速く回したときステップを 10 倍にする', () => { S.autoTs = !S.autoTs; updatePanel(); save(); }).id = 'autoBtn';
+    $('fineBtn').classList.add('mod');
+    $('autoBtn').classList.add('mod');
+
+    $('modeBadge').addEventListener('click', () => {
+      const order = Object.keys(MODE_DEFAULTS);
+      const next = order[(order.indexOf(S.mode) + 1) % order.length];
+      document.querySelector(`#modes button[data-mode="${next}"]`).click();
+    });
+    $('themeBtn').addEventListener('click', () => {
+      S.panelTheme = S.panelTheme === 'amber' ? 'cyan' : 'amber';
+      updatePanel();
+      save();
+    });
+    smeterCanvas.addEventListener('click', () => {
+      S.meterStyle = S.meterStyle === 'bar' ? 'needle' : 'bar';
+      meter.v = 0;
+      save();
+    });
+    const clock = () => {
+      const d = new Date();
+      $('clock').textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    };
+    clock();
+    setInterval(clock, 5000);
+    bindDial();
+    bindKnobs();
+  }
+
+  function updatePanel() {
+    const m = mode();
+    if ($('panel').dataset.theme !== S.panelTheme) {
+      $('panel').dataset.theme = S.panelTheme;
+      meter.colors = null;
+      meter.key = dial.key = '';
+    }
+    $('modeBadge').textContent = S.mode;
+    $('bwBadge').textContent = 'BW ' + fmtStep(m.bandwidth);
+    $('tsBadge').textContent = 'TS ' + fmtStep(S.fine ? Math.max(1, m.snap / 10) : m.snap);
+    $('agcBadge').textContent = GAIN_MODES[S.gainMode] || S.gainMode;
+    $('gainBadge').textContent = 'G ' + Math.round(curGain);
+    $('srBadge').textContent = +(S.sampleRate / 1e6).toFixed(3) + 'M';
+    $('sqlBadge').classList.toggle('on', S.squelchOn);
+    for (const b of $('steps').querySelectorAll('[data-step]')) b.classList.toggle('active', +b.dataset.step === m.snap);
+    $('fineBtn').classList.toggle('active', S.fine);
+    $('autoBtn').classList.toggle('active', S.autoTs);
   }
 
   // ---------------- colormaps ----------------
@@ -952,7 +1443,12 @@
     wfPending = [];
   }
 
-  function frame() {
+  let lastFrame = 0;
+  function frame(now) {
+    const dt = clamp((now - lastFrame) / 1000 || 0, 0, 0.05);
+    lastFrame = now;
+    meterTick(dt, now);
+    dialTick(dt);
     if (dirty) {
       dirty = false;
       drawSpectrum();
@@ -1086,6 +1582,7 @@
   function setBandwidth(bw) {
     mode().bandwidth = bw;
     $('bandwidth').value = +(bw / 1e3).toFixed(2);
+    updatePanel();
     workerConfig();
     dirty = true;
     save();
@@ -1209,6 +1706,8 @@
     $('gainMode').value = S.gainMode;
     $('gain').value = S.gain;
     $('ppm').value = S.ppm;
+    $('meterCal').value = S.meterCal;
+    if (S.gainMode === 'manual') curGain = S.gain;
     $('gain').disabled = S.gainMode !== 'manual';
     $('gainVal').textContent = S.gain + ' dB';
     document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.mode));
@@ -1231,10 +1730,10 @@
     $('scanStart').value = S.scanStart;
     $('scanStop').value = S.scanStop;
     $('scanGain').value = S.scanGain; $('scanGainVal').textContent = S.scanGain + ' dB';
-    $('volume').value = S.volume;
     $('zoom').value = S.zoom;
     $('app').classList.toggle('nomenu', !S.menu);
     updateMeter();
+    updatePanel();
   }
 
   function bindControls() {
@@ -1250,14 +1749,10 @@
       else { S.menu = !S.menu; $('app').classList.toggle('nomenu', !S.menu); save(); }
       setTimeout(resize, 0);
     });
-    on('volume', 'input', (e) => {
-      S.volume = +e.target.value;
-      if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
-      save();
-    });
 
     on('sampleRate', 'change', async (e) => {
       S.sampleRate = +e.target.value;
+      updatePanel();
       save();
       wfRows.length = 0;
       workerConfig();
@@ -1293,8 +1788,16 @@
         await pluto.setFrequency(curLo).catch(() => {});
       }
     });
+    on('meterCal', 'change', (e) => {
+      S.meterCal = clamp(Math.round((+e.target.value || 0) * 2) / 2, -60, 60);
+      e.target.value = S.meterCal;
+      updateMeter();
+      save();
+    });
     on('gain', 'input', (e) => {
       S.gain = +e.target.value;
+      curGain = S.gain;
+      updatePanel();
       $('gainVal').textContent = S.gain + ' dB';
       save();
       if (pluto && state !== 'sweep' && S.gainMode === 'manual') pluto.setGain(S.gain).catch(() => {});
@@ -1311,10 +1814,10 @@
       const [mn, mx] = BW_LIMITS[S.mode];
       setBandwidth(clamp((+e.target.value || 0) * 1e3, mn, mx));
     });
-    on('snap', 'change', (e) => { mode().snap = +e.target.value; save(); });
+    on('snap', 'change', (e) => { mode().snap = +e.target.value; S.fine = false; updatePanel(); save(); });
     on('deemph', 'change', (e) => { mode().deemph = +e.target.value; workerConfig(); save(); });
     on('stereo', 'change', (e) => { S.stereo = e.target.checked; workerConfig(); save(); });
-    on('squelchOn', 'change', (e) => { S.squelchOn = e.target.checked; workerConfig(); updateMeter(); save(); });
+    on('squelchOn', 'change', (e) => { S.squelchOn = e.target.checked; workerConfig(); updateMeter(); updatePanel(); save(); });
     on('squelch', 'input', (e) => {
       S.squelch = +e.target.value;
       $('squelchVal').textContent = S.squelch;
@@ -1401,12 +1904,37 @@
     $('introClose').addEventListener('click', () => { $('intro').hidden = true; S.introSeen = true; save(); });
   }
 
+  // ---------------- installable app ----------------
+  // Only the GitHub Pages build links a manifest; file:// pages skip this.
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) toast('新しいバージョンがあります。再読み込みすると更新されます', 'info');
+    });
+    let installEvt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installEvt = e;
+      $('btnInstall').hidden = false;
+    });
+    $('btnInstall').addEventListener('click', async () => {
+      if (!installEvt) return;
+      installEvt.prompt();
+      await installEvt.userChoice.catch(() => {});
+      installEvt = null;
+      $('btnInstall').hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { $('btnInstall').hidden = true; });
+  }
+
   // Read-only hook for tools/browser-check.mjs.
   window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; } };
 
   // ---------------- init ----------------
   buildFreq();
   buildBands();
+  buildPanel();
   updateBands();
   bindControls();
   syncControls();

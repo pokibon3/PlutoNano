@@ -1,5 +1,7 @@
-// Inlines src/* into a single self-contained dist/PlutoNano.html.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+// Inlines src/* into a single self-contained dist/PlutoNano.html, and
+// writes docs/ (GitHub Pages) with the same page as an installable PWA.
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,3 +19,17 @@ mkdirSync(join(root, 'dist'), { recursive: true });
 const out = join(root, 'dist', 'PlutoNano.html');
 writeFileSync(out, html);
 console.log(`wrote ${out} (${(html.length / 1024).toFixed(1)} KB)`);
+
+// PWA: same page plus a manifest link; the service worker cache name
+// follows the content so every build is picked up.
+const docs = join(root, 'docs');
+mkdirSync(docs, { recursive: true });
+const page = html.replace('</head>', '<link rel="manifest" href="manifest.webmanifest">\n<link rel="icon" href="icon.svg">\n</head>');
+writeFileSync(join(docs, 'index.html'), page);
+for (const f of ['manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png']) {
+  copyFileSync(join(root, 'pwa', f), join(docs, f));
+}
+const version = createHash('sha256').update(page).update(readFileSync(join(root, 'pwa', 'manifest.webmanifest')))
+  .digest('hex').slice(0, 12);
+writeFileSync(join(docs, 'sw.js'), readFileSync(join(root, 'pwa', 'sw.js'), 'utf8').replace('/*VERSION*/', version));
+console.log(`wrote ${docs}/ (PWA ${version})`);
