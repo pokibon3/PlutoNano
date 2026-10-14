@@ -32,6 +32,13 @@ class PlutoPlayer extends AudioWorkletProcessor {
       this.w = (this.w + 1) % cap;
       this.fill++;
     }
+    // A stall on the output side (device glitch, busy system) can pile up
+    // seconds of audio that the rate trim would take minutes to drain,
+    // making every retune sound late. Skip ahead instead.
+    if (this.fill > this.target * 3) {
+      this.r = (this.r + this.fill - this.target) % cap;
+      this.fill = this.target;
+    }
   }
 
   process(inputs, outputs) {

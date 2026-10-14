@@ -59,6 +59,7 @@ input[type=range] { accent-color: var(--accent); min-width: 0; }
 .spacer { flex: 1; }
 .brand { white-space: nowrap; letter-spacing: 0.5px; color: var(--muted); }
 .brand b { color: var(--text); font-weight: 700; margin-right: 4px; }
+.brand .ver { font-size: 0.8em; margin-right: 6px; }
 .tb-btn { height: 30px; min-width: 104px; padding: 0 12px; font-weight: 600; }
 .tb-btn .ic { display: inline-block; width: 1em; }
 .tb-btn.play.on .ic { color: var(--danger); }
@@ -244,7 +245,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.0.0</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -1047,6 +1048,13 @@ class PlutoPlayer extends AudioWorkletProcessor {
       this.w = (this.w + 1) % cap;
       this.fill++;
     }
+    // A stall on the output side (device glitch, busy system) can pile up
+    // seconds of audio that the rate trim would take minutes to drain,
+    // making every retune sound late. Skip ahead instead.
+    if (this.fill > this.target * 3) {
+      this.r = (this.r + this.fill - this.target) % cap;
+      this.fill = this.target;
+    }
   }
 
   process(inputs, outputs) {
@@ -1626,6 +1634,8 @@ registerProcessor('pluto-player', PlutoPlayer);
         if (fill >= cap) { r = (r + 1) % cap; fill--; }
         buf[2 * w] = a[2 * i]; buf[2 * w + 1] = a[2 * i + 1]; w = (w + 1) % cap; fill++;
       }
+      // Same latency bound as the worklet.
+      if (fill > target * 3) { r = (r + fill - target) % cap; fill = target; }
     };
     const node = ctx.createScriptProcessor(4096, 0, 2);
     node.onaudioprocess = (e) => {
@@ -2836,7 +2846,10 @@ registerProcessor('pluto-player', PlutoPlayer);
     const row = { q: quantize(db), f0, binHz };
     wfRows.unshift(row);
     if (wfRows.length > WF_ROWS) wfRows.length = WF_ROWS;
-    wfPending.push(row);
+    // Without animation frames (hidden window) nothing drains the queue;
+    // past WF_ROWS a full redraw from wfRows is needed anyway.
+    if (wfPending.length >= WF_ROWS) { wfPending = []; wfView = null; }
+    else wfPending.push(row);
   }
 
   let rowLine = new Float32Array(0), rowQ = new Float32Array(0);

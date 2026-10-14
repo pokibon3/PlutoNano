@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (f) => readFileSync(join(root, 'src', f), 'utf8');
 
-let html = src('index.html');
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+let html = src('index.html').replaceAll('__APP_VERSION__', pkg.version);
 html = html.replace(/\/\*INLINE:([\w.-]+)\*\//g, (_, f) => {
   const code = src(f);
   if (/<\/script/i.test(code)) throw new Error(`${f} contains "</script"`);

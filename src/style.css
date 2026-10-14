@@ -52,6 +52,7 @@ input[type=range] { accent-color: var(--accent); min-width: 0; }
 .spacer { flex: 1; }
 .brand { white-space: nowrap; letter-spacing: 0.5px; color: var(--muted); }
 .brand b { color: var(--text); font-weight: 700; margin-right: 4px; }
+.brand .ver { font-size: 0.8em; margin-right: 6px; }
 .tb-btn { height: 30px; min-width: 104px; padding: 0 12px; font-weight: 600; }
 .tb-btn .ic { display: inline-block; width: 1em; }
 .tb-btn.play.on .ic { color: var(--danger); }

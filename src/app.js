@@ -182,6 +182,8 @@
         if (fill >= cap) { r = (r + 1) % cap; fill--; }
         buf[2 * w] = a[2 * i]; buf[2 * w + 1] = a[2 * i + 1]; w = (w + 1) % cap; fill++;
       }
+      // Same latency bound as the worklet.
+      if (fill > target * 3) { r = (r + fill - target) % cap; fill = target; }
     };
     const node = ctx.createScriptProcessor(4096, 0, 2);
     node.onaudioprocess = (e) => {
@@ -1392,7 +1394,10 @@
     const row = { q: quantize(db), f0, binHz };
     wfRows.unshift(row);
     if (wfRows.length > WF_ROWS) wfRows.length = WF_ROWS;
-    wfPending.push(row);
+    // Without animation frames (hidden window) nothing drains the queue;
+    // past WF_ROWS a full redraw from wfRows is needed anyway.
+    if (wfPending.length >= WF_ROWS) { wfPending = []; wfView = null; }
+    else wfPending.push(row);
   }
 
   let rowLine = new Float32Array(0), rowQ = new Float32Array(0);
