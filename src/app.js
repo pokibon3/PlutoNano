@@ -1914,8 +1914,15 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    // A new build took over: reload into it right away. The device is
+    // released first so the reloaded page can reconnect to it.
+    let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (hadController) toast('新しいバージョンがあります。再読み込みすると更新されます', 'info');
+      if (!hadController || reloading) return;
+      reloading = true;
+      toast('新しいバージョンに更新します', 'info');
+      Promise.race([disconnect().catch(() => {}), new Promise((r) => setTimeout(r, 1500))])
+        .then(() => location.reload());
     });
     let installEvt = null;
     window.addEventListener('beforeinstallprompt', (e) => {
