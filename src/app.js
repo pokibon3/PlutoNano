@@ -926,6 +926,9 @@
   const TX_TOT = 180e3;      // time-out timer
   const CW_HANG = 800;       // semi break-in: stay on the air this long after the key opens
   const TX_KERNEL_BUFFERS = 4;
+  // The receiver removes DC, so with its LO on the VFO our own carrier
+  // vanishes from the display. While transmitting keep the LO this far away.
+  const TX_MON_OFFSET = 200e3;
   const txWorker = new Worker(blobUrl('txworker-src'));
   const tx = {
     on: false, want: false, busy: false, token: 0, loop: null, tot: 0, hang: 0,
@@ -1039,6 +1042,7 @@
     const token = ++tx.token;
     tx.on = true;
     tx.mode = S.mode; tx.bw = mode().bandwidth;
+    keepTxVisible();
     audio.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.01);
     tx.tot = setTimeout(() => { toast('タイムアウト（3 分）で送信を止めました', 'info'); txKey(false, true); }, TX_TOT);
     updateTx();
@@ -1142,7 +1146,13 @@
       txKick();
     } else if (tx.on && pluto) {
       pluto.setTxFrequency(S.vfo).catch(() => {});
+      keepTxVisible();
     }
+  }
+
+  function keepTxVisible() {
+    if (!tx.on || state !== 'live') return;
+    if (Math.abs(S.vfo - S.lo) < TX_MON_OFFSET / 2) setLo(S.vfo + TX_MON_OFFSET);
   }
 
   function updateTx() {
