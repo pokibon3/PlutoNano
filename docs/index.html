@@ -172,6 +172,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 .tag.flag { color: var(--lcd-ghost); border-color: var(--lcd-ghost); }
 .tag.flag.on { color: var(--lcd-bg); background: var(--lcd); border-color: var(--lcd); box-shadow: 0 0 6px var(--lcd-dim); }
 #clock { border-color: transparent; color: var(--lcd-dim); }
+.tag.flag.tx.on { color: #fff; background: #e5332a; border-color: #ff5b4a; box-shadow: 0 0 8px #ff5b4a; }
 
 .freq-row { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 0; }
 .freq-row .freq { margin-left: auto; }
@@ -235,6 +236,10 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 @container (max-width: 700px) { .meter-box { display: none; } #afScope { display: none; } }
 @container (max-width: 470px) { .dial-box { display: none; } .freq-box .info .tag:not(.flag):not(#modeBadge) { display: none; } }
 #toast[hidden] { display: none; }
+
+/* Push-to-talk button: red while transmitting. */
+button.ptt { font-weight: 700; letter-spacing: 0.1em; padding: 10px 0; touch-action: none; user-select: none; }
+button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-shadow: 0 0 10px rgba(255, 91, 74, 0.6); }
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
@@ -246,7 +251,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.3.0</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.0</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -269,6 +274,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
           <span id="gainBadge" class="tag" title="RF ゲイン">G</span>
           <span id="srBadge" class="tag" title="サンプルレート">SR</span>
           <span id="sqlBadge" class="tag flag" title="スケルチ">SQL</span>
+          <span id="txInd" class="tag flag tx" title="送信中">TX</span>
           <span class="spacer"></span>
           <button id="themeBtn" class="tag" title="配色を切り替え">&#9680;</button>
           <span id="clock" class="tag"></span>
@@ -347,6 +353,17 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
         <span class="hint">WFM のみ</span></div>
       <div class="row"><label class="lbl chk"><input id="squelchOn" type="checkbox"> Squelch</label>
         <input id="squelch" type="range" min="-120" max="0" step="1"><span id="squelchVal" class="num">-60</span></div>
+    </details>
+
+    <details open>
+      <summary>Transmit</summary>
+      <div class="row"><label class="lbl chk"><input id="txEnabled" type="checkbox"> 送信を有効にする</label></div>
+      <div class="row"><span class="lbl">TX level</span>
+        <input id="txAtten" type="range" min="-89.75" max="0" step="0.25"><span id="txAttenVal" class="num">-30 dB</span></div>
+      <div class="row"><span class="lbl">Mic gain</span>
+        <input id="micGain" type="range" min="0" max="40" step="1"><span id="micGainVal" class="num">20 dB</span></div>
+      <div class="row"><button id="btnPtt" class="wide ptt" disabled title="押している間送信（Space キーでも可）">PTT</button></div>
+      <div class="row"><span id="txInfo" class="hint">Space で送信（押している間）。CW は Space が電鍵。日本のアマチュアバンド内（144 / 430 / 1200 / 2400 / 5600）だけ送信できます。</span></div>
     </details>
 
     <details open>
@@ -887,7 +904,128 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
     }
   }
 
-  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Spectrum };
+  // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
+  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto DAC.
+  // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
+  const NFM_DEV = 5e3;
+  class Transmitter {
+    constructor(o) {
+      this.fs = o.fs;
+      this.L = o.L;
+      this.micRate = o.fs / o.L;
+      this.mode = o.mode;
+      this.bandwidth = o.bandwidth;
+      this.micGain = o.micGain ?? 1;
+      const r = this.micRate;
+      // Voice: 300 Hz high-pass (biquad), clip, then FIR band limit.
+      const w0 = TAU * 300 / r, al = Math.sin(w0) / Math.SQRT2, c = Math.cos(w0), a0 = 1 + al;
+      this.hp = { b0: (1 + c) / 2 / a0, b1: -(1 + c) / a0, b2: (1 + c) / 2 / a0, a1: -2 * c / a0, a2: (1 - al) / a0, x1: 0, x2: 0, y1: 0, y2: 0 };
+      const ssb = this.mode === 'USB' || this.mode === 'LSB';
+      if (ssb) {
+        // Complex band-pass: keeps only SSB_LOWCUT..SSB_LOWCUT+bw of the
+        // positive frequencies, which is the USB signal itself.
+        const lp = lowpass(r, this.bandwidth / 2, 300, 'blackman');
+        const f0 = SSB_LOWCUT + this.bandwidth / 2;
+        this.fr = new Float32Array(lp.length); this.fi = new Float32Array(lp.length);
+        for (let k = 0; k < lp.length; k++) {
+          const ph = TAU * f0 * k / r;
+          this.fr[k] = 2 * lp[k] * Math.cos(ph); this.fi[k] = 2 * lp[k] * Math.sin(ph);
+        }
+      } else {
+        this.fr = lowpass(r, 3000, 600, 'blackman'); this.fi = null;
+      }
+      this.hist = new Float32Array(this.fr.length * 2);
+      this.hpos = 0;
+      this.phase = 0;
+      // Interpolation to fs: polyphase low-pass, gain L.
+      const cut = this.mode === 'NFM' ? NFM_DEV + 3500 : 4000;
+      const h = lowpass(this.fs, cut, Math.max(r - 2 * cut, 4000), 'blackman');
+      const P = Math.ceil(h.length / this.L);
+      this.P = P;
+      this.poly = [];
+      for (let ph = 0; ph < this.L; ph++) {
+        const t = new Float32Array(P);
+        for (let k = 0; k < P; k++) { const i = k * this.L + ph; t[k] = i < h.length ? h[i] * this.L : 0; }
+        this.poly.push(t);
+      }
+      this.ir = new Float32Array(P * 2); this.ii = new Float32Array(P * 2); this.ipos = 0;
+      // CW keying: sample-accurate schedule of [sample, down] events and a
+      // raised-cosine envelope.
+      this.key = false; this.env = 0;
+      this.rampStep = 1 / (r * 0.005);
+      this.keyEvents = [];
+      this.pos = 0; // samples generated at micRate
+    }
+
+    keyAt(down, sample) { this.keyEvents.push([sample, down]); }
+
+    voice(x) {
+      const h = this.hp;
+      const y = h.b0 * x + h.b1 * h.x1 + h.b2 * h.x2 - h.a1 * h.y1 - h.a2 * h.y2;
+      h.x2 = h.x1; h.x1 = x; h.y2 = h.y1; h.y1 = y;
+      // Soft clip: limits peak deviation / modulation, the FIR removes the splatter.
+      const v = y * this.micGain;
+      return v / (1 + Math.abs(v));
+    }
+
+    // Band-limit one voice sample; returns [re, im] via this.br / this.bi.
+    band(v) {
+      const n = this.fr.length, hist = this.hist;
+      hist[this.hpos] = hist[this.hpos + n] = v;
+      this.hpos = this.hpos + 1 === n ? 0 : this.hpos + 1;
+      let re = 0, im = 0;
+      const o = this.hpos;
+      // hist[o .. o+n-1] is oldest..newest.
+      const fr = this.fr, fi = this.fi;
+      if (fi) for (let k = 0; k < n; k++) { const x = hist[o + n - 1 - k]; re += fr[k] * x; im += fi[k] * x; }
+      else for (let k = 0; k < n; k++) re += fr[k] * hist[o + n - 1 - k];
+      this.br = re; this.bi = im;
+    }
+
+    // audio: Float32Array of m samples at micRate (CW: ignored). Returns
+    // Int16Array of m * L interleaved I/Q pairs.
+    process(audio, m) {
+      const L = this.L, P = this.P, out = new Int16Array(m * L * 2);
+      const mode = this.mode;
+      let o = 0;
+      for (let i = 0; i < m; i++, this.pos++) {
+        let re = 0, im = 0;
+        if (mode === 'CW') {
+          while (this.keyEvents.length && this.keyEvents[0][0] <= this.pos) this.key = this.keyEvents.shift()[1];
+          this.env = this.key ? Math.min(1, this.env + this.rampStep) : Math.max(0, this.env - this.rampStep);
+          re = 0.9 * (0.5 - 0.5 * Math.cos(Math.PI * this.env));
+        } else {
+          this.band(this.voice(audio[i]));
+          if (mode === 'NFM') {
+            this.phase += TAU * NFM_DEV * this.br / this.micRate;
+            if (this.phase > Math.PI) this.phase -= TAU; else if (this.phase < -Math.PI) this.phase += TAU;
+            re = 0.9 * Math.cos(this.phase); im = 0.9 * Math.sin(this.phase);
+          } else if (mode === 'AM') {
+            re = 0.45 * (1 + 0.9 * Math.max(-1, Math.min(1, this.br)));
+          } else {
+            re = 0.9 * this.br; im = mode === 'LSB' ? -0.9 * this.bi : 0.9 * this.bi;
+            const a = Math.hypot(re, im);
+            if (a > 0.95) { re *= 0.95 / a; im *= 0.95 / a; }
+          }
+        }
+        // Polyphase interpolation by L.
+        this.ir[this.ipos] = this.ir[this.ipos + P] = re;
+        this.ii[this.ipos] = this.ii[this.ipos + P] = im;
+        this.ipos = this.ipos + 1 === P ? 0 : this.ipos + 1;
+        const base = this.ipos + P - 1;
+        for (let ph = 0; ph < L; ph++) {
+          const t = this.poly[ph];
+          let yr = 0, yi = 0;
+          for (let k = 0; k < P; k++) { yr += t[k] * this.ir[base - k]; yi += t[k] * this.ii[base - k]; }
+          out[o++] = Math.max(-2047, Math.min(2047, Math.round(yr * 2047))) << 4;
+          out[o++] = Math.max(-2047, Math.min(2047, Math.round(yi * 2047))) << 4;
+        }
+      }
+      return out;
+    }
+  }
+
+  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DSP = api;
 })(typeof self !== 'undefined' ? self : globalThis);
@@ -1023,6 +1161,679 @@ self.onmessage = (e) => {
 
 configure({});
 </script>
+<script type="text/plain" id="txworker-src">// DSP building blocks: FFT, windows, FIR design, decimators, resampler and
+// demodulators. Plain Float32Array code so it runs in a worker or in Node.
+
+(function (root) {
+  'use strict';
+
+  const TAU = 2 * Math.PI;
+
+  class FFT {
+    constructor(n) {
+      this.n = n;
+      this.cos = new Float32Array(n / 2);
+      this.sin = new Float32Array(n / 2);
+      for (let k = 0; k < n / 2; k++) {
+        this.cos[k] = Math.cos(TAU * k / n);
+        this.sin[k] = Math.sin(TAU * k / n);
+      }
+      this.rev = new Uint32Array(n);
+      const bits = Math.log2(n);
+      for (let i = 0; i < n; i++) {
+        let r = 0;
+        for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+        this.rev[i] = r;
+      }
+    }
+
+    // In-place forward transform.
+    transform(re, im) {
+      const n = this.n, rev = this.rev, cs = this.cos, sn = this.sin;
+      for (let i = 0; i < n; i++) {
+        const j = rev[i];
+        if (j > i) {
+          let t = re[i]; re[i] = re[j]; re[j] = t;
+          t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+      }
+      for (let size = 2; size <= n; size <<= 1) {
+        const half = size >> 1, step = n / size;
+        for (let i = 0; i < n; i += size) {
+          for (let j = i, k = 0; j < i + half; j++, k += step) {
+            const l = j + half, c = cs[k], s = sn[k];
+            const tr = re[l] * c + im[l] * s;
+            const ti = im[l] * c - re[l] * s;
+            re[l] = re[j] - tr; im[l] = im[j] - ti;
+            re[j] += tr; im[j] += ti;
+          }
+        }
+      }
+    }
+  }
+
+  function makeWindow(type, n) {
+    const w = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = TAU * i / (n - 1);
+      if (type === 'hann') w[i] = 0.5 - 0.5 * Math.cos(x);
+      else if (type === 'rect') w[i] = 1;
+      else w[i] = 0.35875 - 0.48829 * Math.cos(x) + 0.14128 * Math.cos(2 * x) - 0.01168 * Math.cos(3 * x);
+    }
+    return w;
+  }
+
+  // Windowed-sinc lowpass. cutoff is in Hz at rate fs. Odd length, unity DC gain.
+  function lowpass(fs, cutoff, transition, window = 'blackman') {
+    const k = window === 'blackman' ? 5.5 : 3.3;
+    let n = Math.ceil(k * fs / transition) | 1;
+    n = Math.max(15, Math.min(n, 4095)) | 1;
+    const fc = cutoff / fs, m = (n - 1) / 2;
+    const h = new Float32Array(n);
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i - m;
+      const sinc = t === 0 ? 2 * fc : Math.sin(TAU * fc * t) / (Math.PI * t);
+      const x = TAU * i / (n - 1);
+      const w = window === 'blackman'
+        ? 0.42 - 0.5 * Math.cos(x) + 0.08 * Math.cos(2 * x)
+        : 0.54 - 0.46 * Math.cos(x);
+      h[i] = sinc * w;
+      sum += h[i];
+    }
+    for (let i = 0; i < n; i++) h[i] /= sum;
+    return h;
+  }
+
+  // Complex FIR filter that only computes every D-th output.
+  class CDecim {
+    constructor(taps, D) {
+      this.h = taps; this.D = D; this.L = taps.length;
+      this.hr = new Float32Array(this.L - 1);
+      this.hi = new Float32Array(this.L - 1);
+      this.br = new Float32Array(0); this.bi = new Float32Array(0);
+      this.pos = 0;
+    }
+
+    process(re, im, n, outRe, outIm) {
+      const L = this.L, D = this.D, h = this.h, tot = L - 1 + n;
+      if (this.br.length < tot) { this.br = new Float32Array(tot); this.bi = new Float32Array(tot); }
+      const br = this.br, bi = this.bi;
+      br.set(this.hr); bi.set(this.hi);
+      br.set(re.subarray(0, n), L - 1); bi.set(im.subarray(0, n), L - 1);
+      let k = 0, p = this.pos;
+      for (; p + L <= tot; p += D) {
+        let sr = 0, si = 0;
+        for (let j = 0; j < L; j++) { const c = h[j]; sr += c * br[p + j]; si += c * bi[p + j]; }
+        outRe[k] = sr; outIm[k++] = si;
+      }
+      this.pos = p - n;
+      this.hr.set(br.subarray(n, tot)); this.hi.set(bi.subarray(n, tot));
+      return k;
+    }
+  }
+
+  class RDecim {
+    constructor(taps, D) {
+      this.h = taps; this.D = D; this.L = taps.length;
+      this.hist = new Float32Array(this.L - 1);
+      this.buf = new Float32Array(0);
+      this.pos = 0;
+    }
+
+    process(x, n, out) {
+      const L = this.L, D = this.D, h = this.h, tot = L - 1 + n;
+      if (this.buf.length < tot) this.buf = new Float32Array(tot);
+      const b = this.buf;
+      b.set(this.hist); b.set(x.subarray(0, n), L - 1);
+      let k = 0, p = this.pos;
+      for (; p + L <= tot; p += D) {
+        let s = 0;
+        for (let j = 0; j < L; j++) s += h[j] * b[p + j];
+        out[k++] = s;
+      }
+      this.pos = p - n;
+      this.hist.set(b.subarray(n, tot));
+      return k;
+    }
+  }
+
+  // Catmull-Rom fractional resampler; ratio = input rate / output rate.
+  class Resampler {
+    constructor(ratio) {
+      this.ratio = ratio;
+      this.hist = new Float32Array(3);
+      this.buf = new Float32Array(0);
+      this.t = 1;
+    }
+
+    process(x, n, out) {
+      const len = n + 3;
+      if (this.buf.length < len) this.buf = new Float32Array(len);
+      const c = this.buf;
+      c.set(this.hist); c.set(x.subarray(0, n), 3);
+      let k = 0, t = this.t;
+      const r = this.ratio;
+      while (t < len - 2) {
+        const i = t | 0, f = t - i;
+        const y0 = c[i - 1], y1 = c[i], y2 = c[i + 1], y3 = c[i + 2];
+        const a = -0.5 * y0 + 1.5 * y1 - 1.5 * y2 + 0.5 * y3;
+        const b = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3;
+        const d = 0.5 * (y2 - y0);
+        out[k++] = ((a * f + b) * f + d) * f + y1;
+        t += r;
+      }
+      this.t = t - n;
+      this.hist.set(c.subarray(n, n + 3));
+      return k;
+    }
+  }
+
+  // Numerically controlled oscillator mixing by exp(-j*2*pi*f/fs*n).
+  class Mixer {
+    constructor() { this.pr = 1; this.pi = 0; this.setFreq(0, 1); }
+    setFreq(f, fs) {
+      const w = -TAU * f / fs;
+      this.cr = Math.cos(w); this.ci = Math.sin(w);
+    }
+    process(re, im, n, outRe, outIm) {
+      let pr = this.pr, pi = this.pi;
+      const cr = this.cr, ci = this.ci;
+      for (let i = 0; i < n; i++) {
+        const xr = re[i], xi = im[i];
+        outRe[i] = xr * pr - xi * pi;
+        outIm[i] = xr * pi + xi * pr;
+        const t = pr * cr - pi * ci;
+        pi = pr * ci + pi * cr;
+        pr = t;
+      }
+      const g = 1 / Math.hypot(pr, pi);
+      this.pr = pr * g; this.pi = pi * g;
+    }
+  }
+
+  // Peak-tracking AGC for AM/SSB audio.
+  class AGC {
+    constructor(rate) {
+      this.env = 1e-4;
+      this.decay = Math.exp(-1 / (rate * 0.5));
+      this.attack = 1 - Math.exp(-1 / (rate * 0.002));
+    }
+    process(x, n) {
+      let env = this.env;
+      const decay = this.decay, attack = this.attack;
+      for (let i = 0; i < n; i++) {
+        const a = Math.abs(x[i]);
+        env = a > env ? env + attack * (a - env) : env * decay;
+        if (env < 1e-5) env = 1e-5;
+        x[i] = x[i] * (0.25 / env);
+      }
+      this.env = env;
+    }
+  }
+
+  // FM stereo pilot PLL. Tracks the 19 kHz pilot in the MPX signal and
+  // reports whether a pilot is present.
+  class PilotPLL {
+    constructor(rate) {
+      this.w0 = TAU * 19000 / rate;
+      this.wMax = TAU * 50 / rate;
+      const wn = TAU * 20, zeta = 0.707, kd = 0.5;
+      this.kp = 2 * zeta * wn / (kd * rate);
+      this.ki = wn * wn / (kd * rate * rate);
+      this.lp = 1 - Math.exp(-1 / (rate * 0.05));
+      this.theta = 0; this.dw = 0; this.i = 0; this.q = 0;
+      this.locked = false;
+    }
+  }
+
+  // Complete receive chain: IQ at fs -> interleaved stereo audio at audioRate.
+  // mode: WFM | NFM | AM | USB | LSB | CW
+  // CW: the carrier at the VFO is heard as a CW_PITCH tone.
+  const CW_PITCH = 700;
+  // SSB passband starts this far from the carrier (low cut).
+  const SSB_LOWCUT = 100;
+  class Receiver {
+    constructor(opts) {
+      this.audioRate = opts.audioRate || 48000;
+      this.mixer = new Mixer();
+      this.configure(opts);
+    }
+
+    configure(o) {
+      Object.assign(this, {
+        fs: o.fs ?? this.fs,
+        offset: o.offset ?? this.offset ?? 0,
+        mode: o.mode ?? this.mode ?? 'WFM',
+        bandwidth: o.bandwidth ?? this.bandwidth ?? 200e3,
+        deemph: o.deemph ?? this.deemph ?? 50e-6,
+        squelch: o.squelch ?? this.squelch ?? null,
+        stereo: o.stereo ?? this.stereo ?? true,
+      });
+      const fs = this.fs, bw = this.bandwidth, mode = this.mode;
+      const ssb = mode === 'USB' || mode === 'LSB', cw = mode === 'CW';
+
+      // WFM keeps the whole MPX baseband (stereo subcarrier up to 53 kHz).
+      // CW uses a low IF so its narrow filter stays short.
+      const ifTarget = Math.min(fs, cw ? 12e3 : Math.max(1.25 * bw, mode === 'WFM' ? 150e3 : 50e3));
+      const D1 = Math.max(1, Math.floor(fs / (4 * ifTarget)));
+      const fs1 = fs / D1;
+      const D2 = Math.max(1, Math.floor(fs1 / ifTarget));
+      this.ifRate = fs1 / D2;
+
+      // Stage 1 only has to keep aliases out of the final channel.
+      this.stage1 = D1 > 1
+        ? new CDecim(lowpass(fs, ifTarget / 2, Math.max(fs1 - ifTarget, ifTarget * 0.5), 'blackman'), D1)
+        : null;
+      const half = bw / 2;
+      this.stage2 = new CDecim(lowpass(fs1, half, cw ? Math.max(bw * 0.3, 100) : Math.max(half * 0.2, 500), 'hamming'), D2);
+
+      // SSB: centre the sideband before filtering, shift back after.
+      this.ssbShift = mode === 'USB' ? SSB_LOWCUT + bw / 2 : mode === 'LSB' ? -(SSB_LOWCUT + bw / 2) : 0;
+      this.mixer.setFreq(this.offset + this.ssbShift, fs);
+      this.bfo = new Mixer();
+      this.bfo.setFreq(cw ? -CW_PITCH : -this.ssbShift, this.ifRate);
+
+      const audioCut = Math.min(
+        mode === 'WFM' ? 15e3 : mode === 'NFM' ? Math.min(bw / 2, 8e3) : ssb ? SSB_LOWCUT + bw : cw ? CW_PITCH + bw / 2 + 300 : bw / 2,
+        this.audioRate * 0.45);
+      const Da = Math.max(1, Math.floor(this.ifRate / this.audioRate));
+      // WFM: the filter must also reject the 19 kHz pilot.
+      const audioTaps = lowpass(this.ifRate, audioCut, mode === 'WFM' ? 3000 : Math.max(audioCut * 0.25, 500), 'hamming');
+      this.audioDecim = new RDecim(audioTaps, Da);
+      this.diffDecim = new RDecim(audioTaps, Da);
+      this.aRate = this.ifRate / Da;
+      this.baseRatio = this.aRate / this.audioRate;
+      this.resampler = new Resampler(this.baseRatio);
+      this.resamplerR = new Resampler(this.baseRatio);
+      this.pll = mode === 'WFM' ? new PilotPLL(this.ifRate) : null;
+      this.blend = 0;
+
+      this.fmGain = this.ifRate / (TAU * (mode === 'WFM' ? 75e3 : Math.max(bw / 2 - 1500, 2500)));
+      // De-emphasis runs after decimation, separately on L and R.
+      this.deAlpha = this.deemph > 0 && (mode === 'WFM' || mode === 'NFM')
+        ? 1 - Math.exp(-1 / (this.aRate * this.deemph)) : 0;
+      this.deL = this.deL || 0; this.deR = this.deR || 0;
+      this.dcAlpha = 1 - Math.exp(-TAU * 30 / this.ifRate);
+      this.dcState = 0;
+      this.prevR = this.prevR || 0; this.prevI = this.prevI || 0;
+      this.agc = new AGC(this.aRate);
+      this.levelDb = -200;
+    }
+
+    setOffset(offset) {
+      this.offset = offset;
+      this.mixer.setFreq(offset + this.ssbShift, this.fs);
+    }
+
+    setRateCorrection(c) { this.resampler.ratio = this.resamplerR.ratio = this.baseRatio * (1 + c); }
+
+    get stereoLocked() { return !!(this.pll && this.pll.locked && this.stereo); }
+
+    ensure(n) {
+      if (!this.wr || this.wr.length < n) {
+        this.wr = new Float32Array(n); this.wi = new Float32Array(n);
+        this.xr = new Float32Array(n); this.xi = new Float32Array(n);
+        this.demod = new Float32Array(n); this.diff = new Float32Array(n);
+        this.aud = new Float32Array(n); this.audR = new Float32Array(n);
+        this.outL = new Float32Array(n * 2 + 1024); this.outR = new Float32Array(n * 2 + 1024);
+      }
+    }
+
+    // iq: Float32 re/im arrays of length n. Returns Float32Array of audio.
+    process(re, im, n) {
+      this.ensure(n);
+      this.mixer.process(re, im, n, this.wr, this.wi);
+      let m = n, sr = this.wr, si = this.wi;
+      if (this.stage1) { m = this.stage1.process(sr, si, m, this.xr, this.xi); sr = this.xr; si = this.xi; }
+      const cr = this.wr, ci = this.wi; // reuse as stage-2 output
+      m = this.stage2.process(sr, si, m, cr, ci);
+
+      let pwr = 0;
+      for (let i = 0; i < m; i++) pwr += cr[i] * cr[i] + ci[i] * ci[i];
+      this.levelDb = 10 * Math.log10(pwr / Math.max(m, 1) + 1e-20);
+
+      const d = this.demod, mode = this.mode;
+      if (mode === 'WFM' || mode === 'NFM') {
+        let pr = this.prevR, pi = this.prevI;
+        const g = this.fmGain;
+        for (let i = 0; i < m; i++) {
+          const r = cr[i], q = ci[i];
+          d[i] = Math.atan2(q * pr - r * pi, r * pr + q * pi) * g;
+          pr = r; pi = q;
+        }
+        this.prevR = pr; this.prevI = pi;
+        if (this.pll) this.pilot(d, m);
+      } else if (mode === 'AM') {
+        let dc = this.dcState;
+        const a = this.dcAlpha;
+        for (let i = 0; i < m; i++) {
+          const e = Math.sqrt(cr[i] * cr[i] + ci[i] * ci[i]);
+          dc += a * (e - dc);
+          d[i] = e - dc;
+        }
+        this.dcState = dc;
+      } else {
+        this.bfo.process(cr, ci, m, this.xr, this.xi);
+        for (let i = 0; i < m; i++) d[i] = this.xr[i];
+      }
+
+      const L = this.aud, R = this.audR;
+      let k = this.audioDecim.process(d, m, L);
+      if (this.pll) {
+        // L = (L+R) + (L-R), R = (L+R) - (L-R); fade between mono and stereo.
+        this.diffDecim.process(this.diff, m, R);
+        const target = this.stereoLocked ? 1 : 0;
+        let g = this.blend;
+        const step = 1 / (this.aRate * 0.2);
+        for (let i = 0; i < k; i++) {
+          g += g < target ? Math.min(step, target - g) : -Math.min(step, g - target);
+          const sum = L[i], dif = R[i] * g;
+          L[i] = sum + dif; R[i] = sum - dif;
+        }
+        this.blend = g;
+      } else {
+        if (mode !== 'NFM' && mode !== 'WFM') this.agc.process(L, k);
+        R.set(L.subarray(0, k));
+      }
+      if (this.deAlpha) {
+        const a = this.deAlpha;
+        let sl = this.deL, sr = this.deR;
+        for (let i = 0; i < k; i++) { sl += a * (L[i] - sl); L[i] = sl; sr += a * (R[i] - sr); R[i] = sr; }
+        this.deL = sl; this.deR = sr;
+      }
+      const nl = this.resampler.process(L, k, this.outL);
+      const nr = this.resamplerR.process(R, k, this.outR);
+      const nf = Math.min(nl, nr);
+      const out = new Float32Array(nf * 2);
+      if (!(this.squelch !== null && this.levelDb < this.squelch)) {
+        const ol = this.outL, or = this.outR;
+        for (let i = 0; i < nf; i++) { out[2 * i] = ol[i]; out[2 * i + 1] = or[i]; }
+      }
+      return out;
+    }
+
+    // Runs the pilot PLL over the MPX signal and fills this.diff with the
+    // L-R channel demodulated by the regenerated 38 kHz subcarrier.
+    pilot(d, m) {
+      const p = this.pll, diff = this.diff;
+      let th = p.theta, dw = p.dw, pi = p.i, pq = p.q;
+      const w0 = p.w0, kp = p.kp, ki = p.ki, lp = p.lp, wMax = p.wMax;
+      for (let i = 0; i < m; i++) {
+        const x = d[i], c = Math.cos(th), s = Math.sin(th);
+        // Locked: cos(th) follows the pilot sin(wt), so the subcarrier
+        // sin(2wt) = -sin(2*th).
+        diff[i] = -4 * x * s * c;
+        pi += lp * (2 * x * c - pi);
+        pq += lp * (-2 * x * s - pq);
+        const amp = Math.max(Math.hypot(pi, pq), 0.005);
+        const e = -x * s / amp;
+        dw += ki * e;
+        if (dw > wMax) dw = wMax; else if (dw < -wMax) dw = -wMax;
+        th += w0 + dw + kp * e;
+        if (th > TAU) th -= TAU;
+      }
+      p.theta = th; p.dw = dw; p.i = pi; p.q = pq;
+      // Pilot is nominally 10% of full deviation; require it in phase.
+      p.locked = p.locked ? pi > 0.025 && pi > 2 * Math.abs(pq) : pi > 0.04 && pi > 4 * Math.abs(pq);
+    }
+  }
+
+  // Averaged power spectrum in dBFS, FFT-shifted (DC in the middle).
+  class Spectrum {
+    constructor(n, window) {
+      this.n = n;
+      this.fft = new FFT(n);
+      this.win = makeWindow(window, n);
+      let s = 0;
+      for (let i = 0; i < n; i++) s += this.win[i];
+      this.norm = 1 / (s * s);
+      this.re = new Float32Array(n); this.im = new Float32Array(n);
+      this.acc = new Float32Array(n);
+      this.frames = 0;
+    }
+
+    // Adds one frame from interleaved Int16 IQ starting at sample index start.
+    addFrame(iq, start) {
+      const n = this.n, w = this.win, re = this.re, im = this.im;
+      for (let i = 0, j = start * 2; i < n; i++, j += 2) {
+        re[i] = iq[j] * w[i] / 2048;
+        im[i] = iq[j + 1] * w[i] / 2048;
+      }
+      this.fft.transform(re, im);
+      const acc = this.acc;
+      for (let i = 0; i < n; i++) acc[i] += re[i] * re[i] + im[i] * im[i];
+      this.frames++;
+    }
+
+    take() {
+      const n = this.n, h = n >> 1, out = new Float32Array(n);
+      const g = this.norm / Math.max(this.frames, 1);
+      for (let i = 0; i < n; i++) {
+        out[(i + h) % n] = 10 * Math.log10(this.acc[i] * g + 1e-20);
+      }
+      this.acc.fill(0);
+      this.frames = 0;
+      return out;
+    }
+  }
+
+  // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
+  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto DAC.
+  // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
+  const NFM_DEV = 5e3;
+  class Transmitter {
+    constructor(o) {
+      this.fs = o.fs;
+      this.L = o.L;
+      this.micRate = o.fs / o.L;
+      this.mode = o.mode;
+      this.bandwidth = o.bandwidth;
+      this.micGain = o.micGain ?? 1;
+      const r = this.micRate;
+      // Voice: 300 Hz high-pass (biquad), clip, then FIR band limit.
+      const w0 = TAU * 300 / r, al = Math.sin(w0) / Math.SQRT2, c = Math.cos(w0), a0 = 1 + al;
+      this.hp = { b0: (1 + c) / 2 / a0, b1: -(1 + c) / a0, b2: (1 + c) / 2 / a0, a1: -2 * c / a0, a2: (1 - al) / a0, x1: 0, x2: 0, y1: 0, y2: 0 };
+      const ssb = this.mode === 'USB' || this.mode === 'LSB';
+      if (ssb) {
+        // Complex band-pass: keeps only SSB_LOWCUT..SSB_LOWCUT+bw of the
+        // positive frequencies, which is the USB signal itself.
+        const lp = lowpass(r, this.bandwidth / 2, 300, 'blackman');
+        const f0 = SSB_LOWCUT + this.bandwidth / 2;
+        this.fr = new Float32Array(lp.length); this.fi = new Float32Array(lp.length);
+        for (let k = 0; k < lp.length; k++) {
+          const ph = TAU * f0 * k / r;
+          this.fr[k] = 2 * lp[k] * Math.cos(ph); this.fi[k] = 2 * lp[k] * Math.sin(ph);
+        }
+      } else {
+        this.fr = lowpass(r, 3000, 600, 'blackman'); this.fi = null;
+      }
+      this.hist = new Float32Array(this.fr.length * 2);
+      this.hpos = 0;
+      this.phase = 0;
+      // Interpolation to fs: polyphase low-pass, gain L.
+      const cut = this.mode === 'NFM' ? NFM_DEV + 3500 : 4000;
+      const h = lowpass(this.fs, cut, Math.max(r - 2 * cut, 4000), 'blackman');
+      const P = Math.ceil(h.length / this.L);
+      this.P = P;
+      this.poly = [];
+      for (let ph = 0; ph < this.L; ph++) {
+        const t = new Float32Array(P);
+        for (let k = 0; k < P; k++) { const i = k * this.L + ph; t[k] = i < h.length ? h[i] * this.L : 0; }
+        this.poly.push(t);
+      }
+      this.ir = new Float32Array(P * 2); this.ii = new Float32Array(P * 2); this.ipos = 0;
+      // CW keying: sample-accurate schedule of [sample, down] events and a
+      // raised-cosine envelope.
+      this.key = false; this.env = 0;
+      this.rampStep = 1 / (r * 0.005);
+      this.keyEvents = [];
+      this.pos = 0; // samples generated at micRate
+    }
+
+    keyAt(down, sample) { this.keyEvents.push([sample, down]); }
+
+    voice(x) {
+      const h = this.hp;
+      const y = h.b0 * x + h.b1 * h.x1 + h.b2 * h.x2 - h.a1 * h.y1 - h.a2 * h.y2;
+      h.x2 = h.x1; h.x1 = x; h.y2 = h.y1; h.y1 = y;
+      // Soft clip: limits peak deviation / modulation, the FIR removes the splatter.
+      const v = y * this.micGain;
+      return v / (1 + Math.abs(v));
+    }
+
+    // Band-limit one voice sample; returns [re, im] via this.br / this.bi.
+    band(v) {
+      const n = this.fr.length, hist = this.hist;
+      hist[this.hpos] = hist[this.hpos + n] = v;
+      this.hpos = this.hpos + 1 === n ? 0 : this.hpos + 1;
+      let re = 0, im = 0;
+      const o = this.hpos;
+      // hist[o .. o+n-1] is oldest..newest.
+      const fr = this.fr, fi = this.fi;
+      if (fi) for (let k = 0; k < n; k++) { const x = hist[o + n - 1 - k]; re += fr[k] * x; im += fi[k] * x; }
+      else for (let k = 0; k < n; k++) re += fr[k] * hist[o + n - 1 - k];
+      this.br = re; this.bi = im;
+    }
+
+    // audio: Float32Array of m samples at micRate (CW: ignored). Returns
+    // Int16Array of m * L interleaved I/Q pairs.
+    process(audio, m) {
+      const L = this.L, P = this.P, out = new Int16Array(m * L * 2);
+      const mode = this.mode;
+      let o = 0;
+      for (let i = 0; i < m; i++, this.pos++) {
+        let re = 0, im = 0;
+        if (mode === 'CW') {
+          while (this.keyEvents.length && this.keyEvents[0][0] <= this.pos) this.key = this.keyEvents.shift()[1];
+          this.env = this.key ? Math.min(1, this.env + this.rampStep) : Math.max(0, this.env - this.rampStep);
+          re = 0.9 * (0.5 - 0.5 * Math.cos(Math.PI * this.env));
+        } else {
+          this.band(this.voice(audio[i]));
+          if (mode === 'NFM') {
+            this.phase += TAU * NFM_DEV * this.br / this.micRate;
+            if (this.phase > Math.PI) this.phase -= TAU; else if (this.phase < -Math.PI) this.phase += TAU;
+            re = 0.9 * Math.cos(this.phase); im = 0.9 * Math.sin(this.phase);
+          } else if (mode === 'AM') {
+            re = 0.45 * (1 + 0.9 * Math.max(-1, Math.min(1, this.br)));
+          } else {
+            re = 0.9 * this.br; im = mode === 'LSB' ? -0.9 * this.bi : 0.9 * this.bi;
+            const a = Math.hypot(re, im);
+            if (a > 0.95) { re *= 0.95 / a; im *= 0.95 / a; }
+          }
+        }
+        // Polyphase interpolation by L.
+        this.ir[this.ipos] = this.ir[this.ipos + P] = re;
+        this.ii[this.ipos] = this.ii[this.ipos + P] = im;
+        this.ipos = this.ipos + 1 === P ? 0 : this.ipos + 1;
+        const base = this.ipos + P - 1;
+        for (let ph = 0; ph < L; ph++) {
+          const t = this.poly[ph];
+          let yr = 0, yi = 0;
+          for (let k = 0; k < P; k++) { yr += t[k] * this.ir[base - k]; yi += t[k] * this.ii[base - k]; }
+          out[o++] = Math.max(-2047, Math.min(2047, Math.round(yr * 2047))) << 4;
+          out[o++] = Math.max(-2047, Math.min(2047, Math.round(yi * 2047))) << 4;
+        }
+      }
+      return out;
+    }
+  }
+
+  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.DSP = api;
+})(typeof self !== 'undefined' ? self : globalThis);
+
+// TX worker: microphone audio (or CW key events) in, I/Q blocks out.
+// Loaded from a Blob together with dsp.js, so DSP is a global here.
+
+'use strict';
+
+let tx = null;
+let micPort = null;
+let resampler = null, rsBuf = new Float32Array(0);
+// Microphone FIFO at the modulator rate; playback starts once it holds
+// FIFO_TARGET seconds so the 256-sample chunks never run it dry.
+const FIFO_TARGET = 0.06;
+let fifo = new Float32Array(1 << 16), fr = 0, fill = 0, primed = false;
+// CW: key events in performance.now() ms, mapped to modulator samples with
+// a fixed lead so they land ahead of what is already queued in the device.
+const KEY_LEAD = 0.08;
+let keyT0 = null, keyS0 = 0, pendingKeys = [];
+
+function push(x, n) {
+  const cap = fifo.length;
+  for (let i = 0; i < n; i++) {
+    if (fill === cap) { fr = (fr + 1) % cap; fill--; }
+    fifo[(fr + fill) % cap] = x[i];
+    fill++;
+  }
+}
+
+function onMic(chunk) {
+  if (!tx || tx.mode === 'CW') return;
+  if (!resampler) { push(chunk, chunk.length); return; }
+  const need = Math.ceil(chunk.length / resampler.ratio) + 4;
+  if (rsBuf.length < need) rsBuf = new Float32Array(need);
+  push(rsBuf, resampler.process(chunk, chunk.length, rsBuf));
+}
+
+function takeAudio(m) {
+  const out = new Float32Array(m);
+  const target = Math.round(tx.micRate * FIFO_TARGET);
+  if (!primed && fill >= target) primed = true;
+  if (!primed) return out;
+  if (fill > target * 3) { fr = (fr + fill - target) % fifo.length; fill = target; }
+  const n = Math.min(m, fill), cap = fifo.length;
+  for (let i = 0; i < n; i++) out[i] = fifo[(fr + i) % cap];
+  fr = (fr + n) % cap;
+  fill -= n;
+  if (n < m) primed = false; // underrun: refill before continuing
+  return out;
+}
+
+function schedule(ev) {
+  if (keyT0 === null) { keyT0 = ev.t; keyS0 = tx.pos + Math.round(KEY_LEAD * tx.micRate); }
+  const s = keyS0 + Math.round((ev.t - keyT0) * tx.micRate / 1000);
+  tx.keyAt(ev.down, Math.max(s, tx.pos));
+}
+
+self.onmessage = (e) => {
+  const m = e.data;
+  switch (m.type) {
+    case 'config': {
+      const c = m.cfg;
+      tx = new DSP.Transmitter(c);
+      resampler = Math.abs(c.inRate - tx.micRate) > 0.5 ? new DSP.Resampler(c.inRate / tx.micRate) : null;
+      fill = fr = 0; primed = false;
+      keyT0 = null;
+      for (const ev of pendingKeys) schedule(ev);
+      pendingKeys = [];
+      break;
+    }
+    case 'gain':
+      if (tx) tx.micGain = m.gain;
+      break;
+    case 'key':
+      if (tx) schedule(m); else pendingKeys.push(m);
+      break;
+    case 'stop':
+      tx = null;
+      pendingKeys = [];
+      break;
+    case 'micPort':
+      micPort = m.port;
+      micPort.onmessage = (ev) => onMic(ev.data);
+      break;
+    case 'block': {
+      if (!tx) { postMessage({ type: 'block', id: m.id, iq: null }); break; }
+      const iq = tx.process(tx.mode === 'CW' ? null : takeAudio(m.m), m.m);
+      postMessage({ type: 'block', id: m.id, iq }, [iq.buffer]);
+      break;
+    }
+  }
+};
+</script>
 <script type="text/plain" id="worklet-src">// Audio output: a ring buffer of interleaved stereo frames fed directly by
 // the DSP worker over a MessagePort. Reports its fill level (in frames) so
 // the worker can trim its resampler.
@@ -1091,12 +1902,42 @@ class PlutoPlayer extends AudioWorkletProcessor {
 }
 
 registerProcessor('pluto-player', PlutoPlayer);
+
+// Microphone capture for TX: forwards mono input in 256-sample chunks to a
+// MessagePort (the TX worker). Outputs silence.
+class PlutoMic extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.dst = null;
+    this.buf = new Float32Array(256);
+    this.n = 0;
+    this.port.onmessage = (e) => { if (e.data && e.data.port) this.dst = e.data.port; };
+  }
+
+  process(inputs) {
+    const x = inputs[0] && inputs[0][0];
+    if (x && this.dst) {
+      for (let i = 0; i < x.length; i++) {
+        this.buf[this.n++] = x[i];
+        if (this.n === this.buf.length) {
+          this.dst.postMessage(this.buf, [this.buf.buffer]);
+          this.buf = new Float32Array(256);
+          this.n = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+
+registerProcessor('pluto-mic', PlutoMic);
 </script>
 <script>// ADALM-Pluto driver over WebUSB.
 //
 // Speaks the IIOD text protocol that libiio's USB backend uses: the device
 // exposes a vendor interface named "IIO" with pairs of bulk endpoints
-// ("pipes"). Pipe 0 carries context/attribute commands, pipe 1 streams RX.
+// ("pipes"). Pipe 0 carries context/attribute commands, pipe 1 streams RX
+// and pipe 2 (when present) streams TX.
 // Works with navigator.usb in the browser and node-usb's WebUSB in Node.
 
 (function (root) {
@@ -1243,6 +2084,7 @@ registerProcessor('pluto-player', PlutoPlayer);
       this.pipes = [];
       this.devices = [];
       this.rx = null;
+      this.tx = null;
     }
 
     static async request(usb = root.navigator && root.navigator.usb) {
@@ -1313,6 +2155,7 @@ registerProcessor('pluto-player', PlutoPlayer);
       this.phy = this.findDevice('ad9361-phy');
       this.rxDev = this.findDevice('cf-ad9361-lpc');
       if (!this.phy || !this.rxDev) throw new Error('AD936x devices not found');
+      this.txDev = this.findDevice('cf-ad9361-dds-core-lpc');
       return this;
     }
 
@@ -1355,6 +2198,9 @@ registerProcessor('pluto-player', PlutoPlayer);
 
     static get RX() { return { id: 'voltage0', output: false }; }
     static get RX_LO() { return { id: 'altvoltage0', output: true }; }
+    static get TX() { return { id: 'voltage0', output: true }; }
+    static get TX_LO() { return { id: 'altvoltage1', output: true }; }
+    static get TX_ATTEN_MIN() { return -89.75; }
 
     setFrequency(hz) { return this.phyWrite(Pluto.RX_LO, 'frequency', Math.round(hz)); }
     async getFrequency() { return parseInt(await this.phyRead(Pluto.RX_LO, 'frequency'), 10); }
@@ -1377,13 +2223,37 @@ registerProcessor('pluto-player', PlutoPlayer);
     }
 
     // Number of kernel DMA blocks queued behind the stream. Fewer blocks means
-    // less stale data after a retune; must be set before startRx().
-    setKernelBuffers(count) {
+    // less stale data after a retune; must be set before startRx() / startTx().
+    setKernelBuffers(count, dev = this.rxDev) {
       const p = this.pipes[0];
       return p.queue.run(async () => {
-        const r = await p.exec(`SET ${this.rxDev.id} BUFFERS_COUNT ${count}\r\n`);
+        const r = await p.exec(`SET ${dev.id} BUFFERS_COUNT ${count}\r\n`);
         if (r < 0) throw new Error(`BUFFERS_COUNT failed: ${r}`);
       });
+    }
+
+    // ---- TX controls ----
+    get canTx() { return !!this.txDev && this.pipes.length >= 3; }
+    setTxFrequency(hz) { return this.phyWrite(Pluto.TX_LO, 'frequency', Math.round(hz)); }
+    // Attenuation in dB, 0 (full power) down to TX_ATTEN_MIN, 0.25 dB steps.
+    setTxAttenuation(db) {
+      const v = Math.max(Pluto.TX_ATTEN_MIN, Math.min(0, Math.round(db * 4) / 4));
+      return this.phyWrite(Pluto.TX, 'hardwaregain', v.toFixed(2));
+    }
+    setTxLoPower(on) { return this.phyWrite(Pluto.TX_LO, 'powerdown', on ? 0 : 1); }
+    // The DDS tone generator drives the DAC whenever no TX buffer is open.
+    async disableDds() {
+      for (const ch of this.txDev.channels) {
+        if (ch.type !== 'output' || !/^altvoltage/.test(ch.id)) continue;
+        await this.writeAttr(this.txDev, { id: ch.id, output: true }, 'raw', 0).catch(() => {});
+      }
+    }
+    // Quiet state between transmissions: DDS off, TX LO off, minimum level.
+    async txIdle() {
+      if (!this.canTx) return;
+      await this.disableDds();
+      await this.setTxAttenuation(Pluto.TX_ATTEN_MIN);
+      await this.setTxLoPower(false);
     }
 
     // ---- RX streaming on pipe 1 ----
@@ -1443,7 +2313,64 @@ registerProcessor('pluto-player', PlutoPlayer);
       }
     }
 
+    // ---- TX streaming on pipe 2 ----
+    async startTx(samples) {
+      if (!this.canTx) throw new Error('TX not available');
+      if (this.tx) await this.stopTx();
+      const dev = this.txDev;
+      const words = Math.ceil(dev.channels.length / 32);
+      const mask = new Uint32Array(words);
+      for (const ch of dev.channels) {
+        if (ch.index >= 0 && (ch.id === 'voltage0' || ch.id === 'voltage1') && ch.type === 'output') {
+          mask[ch.number >> 5] |= 1 << (ch.number & 31);
+        }
+      }
+      let maskHex = '';
+      for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
+
+      const p = this.pipes[2];
+      await this.control(CMD_OPEN_PIPE, p.id);
+      await p.clearHalt();
+      await p.queue.run(async () => {
+        const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
+        if (r < 0) throw new Error(`TX OPEN failed: ${r}`);
+        await p.exec('TIMEOUT 2000\r\n');
+      });
+      this.tx = { samples, bytes: samples * 4 };
+    }
+
+    // Queues one block of interleaved I/Q (Int16Array, 12-bit values
+    // MSB-aligned in 16 bits). Resolves once the device has taken it, which
+    // paces the caller at the sample rate.
+    writeTx(iq) {
+      const p = this.pipes[2];
+      const tx = this.tx;
+      if (!tx) return Promise.reject(new Error('TX not started'));
+      const bytes = new Uint8Array(iq.buffer, iq.byteOffset, iq.byteLength);
+      return p.queue.run(async () => {
+        await p.write(enc.encode(`WRITEBUF ${this.txDev.id} ${bytes.length}\r\n`));
+        const r0 = await p.readInt();
+        if (r0 < 0) throw new Error(`WRITEBUF failed: ${r0}`);
+        await p.write(bytes);
+        const r = await p.readInt();
+        if (r < 0) throw new Error(`WRITEBUF failed: ${r}`);
+        return r;
+      });
+    }
+
+    async stopTx() {
+      if (!this.tx) return;
+      const p = this.pipes[2];
+      this.tx = null;
+      try {
+        await p.queue.run(() => p.exec(`CLOSE ${this.txDev.id}\r\n`));
+      } finally {
+        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
+      }
+    }
+
     async close() {
+      try { await this.stopTx(); } catch (e) { /* device may be gone */ }
       try { await this.stopRx(); } catch (e) { /* device may be gone */ }
       try { await this.control(CMD_RESET_PIPES, 0); } catch (e) {}
       try { await this.usb.releaseInterface(this.iface); } catch (e) {}
@@ -1506,7 +2433,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
-    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true,
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
   };
 
   // ---------------- settings ----------------
@@ -1622,6 +2549,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     for (const url of ['data:text/javascript;base64,' + btoa(unescape(encodeURIComponent(code))), blobUrl('worklet-src')]) {
       try { await ctx.audioWorklet.addModule(url); node = new AudioWorkletNode(ctx, 'pluto-player', { numberOfInputs: 0, outputChannelCount: [2] }); break; } catch (e) { /* try next */ }
     }
+    ctx.hasWorklet = !!node;
     if (node) {
       node.port.postMessage({ port: ch.port1 }, [ch.port1]);
     } else {
@@ -1691,6 +2619,8 @@ registerProcessor('pluto-player', PlutoPlayer);
     $('btnScan').classList.toggle('active', state === 'sweep');
     updateMeter();
     $('loVal').textContent = pluto ? fmtHz(curLo, 6) : '—';
+    updateTx();
+    txRetune();
   }
 
   async function connect(interactive) {
@@ -1713,6 +2643,8 @@ registerProcessor('pluto-player', PlutoPlayer);
         toast(`周波数範囲が ${fmtHz(lo.min, 0)}〜${fmtHz(lo.max, 1)} に制限されています（AD9363 モード）。`, 'info');
       }
       await applySource();
+      // Keep the transmitter quiet until PTT (the DDS tone is on at boot).
+      await p.txIdle().catch(() => {});
       setStatus();
       toast('Pluto に接続しました', 'info');
       await startLive();
@@ -1730,6 +2662,7 @@ registerProcessor('pluto-player', PlutoPlayer);
   async function disconnect() {
     const p = pluto;
     if (!p) return;
+    if (tx.on || tx.want) { tx.keyDown = false; sidetone(false); tx.want = false; await txStopNow(); }
     await stopStream();
     pluto = null;
     clearInterval(rssiTimer);
@@ -1741,6 +2674,8 @@ registerProcessor('pluto-player', PlutoPlayer);
 
   function onDeviceLost(msg) {
     streamToken++;
+    tx.want = tx.keyDown = false;
+    if (tx.on) { tx.on = false; tx.token++; clearTimeout(tx.tot); sidetone(false); }
     state = 'idle';
     pluto = null;
     clearInterval(rssiTimer);
@@ -1949,6 +2884,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     else workerConfig();
     renderFreq();
     updateBands();
+    txRetune();
     dirty = true;
     save();
   }
@@ -2307,9 +3243,10 @@ registerProcessor('pluto-player', PlutoPlayer);
   }
 
   function scopeTick(now) {
-    const live = !!audio && state === 'live';
+    const micOn = tx.on && !!tx.mic && S.mode !== 'CW';
+    const live = !!audio && (state === 'live' || micOn);
     const pb = audioPassband();
-    const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live].join();
+    const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live, micOn].join();
     if (live ? now - scope.last < 33 : key === scope.key) return;
     scope.last = now;
     scope.key = key;
@@ -2344,7 +3281,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     ctx.beginPath(); ctx.moveTo(0, ph + 0.5); ctx.lineTo(w, ph + 0.5); ctx.stroke();
     if (!live) return;
     // Spectrum, -100..-20 dBFS.
-    const an = audio.analyser;
+    const an = micOn ? tx.mic.analyser : audio.analyser;
     if (!scope.buf || scope.buf.length !== an.frequencyBinCount) scope.buf = new Float32Array(an.frequencyBinCount);
     an.getFloatFrequencyData(scope.buf);
     const binHz = audio.ctx.sampleRate / an.fftSize;
@@ -2361,6 +3298,271 @@ registerProcessor('pluto-player', PlutoPlayer);
     ctx.closePath();
     ctx.fillStyle = c.dim;
     ctx.fill();
+  }
+
+  // ---------------- transmit ----------------
+  // Japanese amateur bands within the Pluto's range. TX is allowed only when
+  // the whole emission (txEdges) lies inside one of them.
+  const TX_BANDS = [[144e6, 146e6], [430e6, 440e6], [1260e6, 1300e6], [2400e6, 2450e6], [5650e6, 5850e6]];
+  const TX_MODES = ['NFM', 'AM', 'USB', 'LSB', 'CW'];
+  const TX_TOT = 180e3;      // time-out timer
+  const CW_HANG = 800;       // semi break-in: stay on the air this long after the key opens
+  const TX_KERNEL_BUFFERS = 4;
+  const txWorker = new Worker(blobUrl('txworker-src'));
+  const tx = {
+    on: false, want: false, busy: false, token: 0, loop: null, tot: 0, hang: 0,
+    mic: null, stream: null, side: null, keyDown: false, reqId: 0, pending: new Map(),
+  };
+  txWorker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'block') { const r = tx.pending.get(m.id); tx.pending.delete(m.id); if (r) r(m.iq); }
+  };
+
+  function txEdges(f = S.vfo) {
+    const bw = mode().bandwidth;
+    switch (S.mode) {
+      case 'NFM': return [f - 8e3, f + 8e3];
+      case 'AM': return [f - 3e3, f + 3e3];
+      case 'USB': return [f, f + SSB_LOWCUT + bw];
+      case 'LSB': return [f - SSB_LOWCUT - bw, f];
+      case 'CW': return [f - 250, f + 250];
+      default: return null;
+    }
+  }
+
+  // Why TX is not possible right now, or '' when it is.
+  function txBlocked() {
+    if (!pluto) return 'Pluto が接続されていません';
+    if (!pluto.canTx) return 'この Pluto では送信できません';
+    if (!S.txEnabled) return '送信が無効です（サイドバーの Transmit で有効にしてください）';
+    if (!TX_MODES.includes(S.mode)) return `${S.mode} では送信できません`;
+    if (state === 'sweep') return 'スキャン中は送信できません';
+    const [a, b] = txEdges();
+    if (!TX_BANDS.some(([lo, hi]) => a >= lo && b <= hi)) return 'アマチュアバンド外のため送信できません';
+    return '';
+  }
+
+  // Modulator rate: fs / L close to the 48 kHz audio rate.
+  function txRates() {
+    const fs = S.sampleRate, L = Math.max(1, Math.round(fs / 48000));
+    return { fs, L, r: fs / L, m: Math.round(fs / L * 0.01) };
+  }
+
+  async function ensureMic() {
+    if (!tx.stream) {
+      tx.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      });
+    }
+    if (tx.mic) return;
+    if (!audio.ctx.hasWorklet) throw new Error('AudioWorklet が使えません');
+    const ctx = audio.ctx;
+    const src = ctx.createMediaStreamSource(tx.stream);
+    const node = new AudioWorkletNode(ctx, 'pluto-mic', { numberOfInputs: 1, numberOfOutputs: 1 });
+    // A silent path to the output keeps the node processing.
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    node.connect(sink).connect(ctx.destination);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0.6;
+    src.connect(node);
+    src.connect(analyser);
+    const ch = new MessageChannel();
+    node.port.postMessage({ port: ch.port1 }, [ch.port1]);
+    txWorker.postMessage({ type: 'micPort', port: ch.port2 }, [ch.port2]);
+    tx.mic = { node, analyser };
+  }
+
+  // CW sidetone at the receive pitch, gated with a short ramp.
+  function sidetone(on) {
+    if (!audio) return;
+    const ctx = audio.ctx;
+    if (!tx.side) {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = CW_PITCH;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      osc.connect(g).connect(ctx.destination);
+      osc.start();
+      tx.side = g;
+    }
+    tx.side.gain.setTargetAtTime(on ? 0.15 * S.volume : 0, ctx.currentTime, 0.003);
+  }
+
+  function txBlock() {
+    return new Promise((resolve) => {
+      const id = ++tx.reqId;
+      tx.pending.set(id, resolve);
+      txWorker.postMessage({ type: 'block', id, m: txRates().m });
+    });
+  }
+
+  async function txStartNow() {
+    const why = txBlocked();
+    if (why) { toast(why); return false; }
+    await ensureAudio();
+    if (S.mode !== 'CW') await ensureMic();
+    const { fs, L, m } = txRates();
+    txWorker.postMessage({
+      type: 'config',
+      cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate },
+    });
+    await pluto.disableDds();
+    await pluto.setTxFrequency(S.vfo);
+    await pluto.setTxAttenuation(S.txAtten);
+    await pluto.setKernelBuffers(TX_KERNEL_BUFFERS, pluto.txDev);
+    await pluto.startTx(m * L);
+    await pluto.setTxLoPower(true);
+    const token = ++tx.token;
+    tx.on = true;
+    tx.mode = S.mode; tx.bw = mode().bandwidth;
+    audio.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.01);
+    tx.tot = setTimeout(() => { toast('タイムアウト（3 分）で送信を止めました', 'info'); txKey(false, true); }, TX_TOT);
+    updateTx();
+    tx.loop = (async () => {
+      let next = txBlock();
+      while (token === tx.token) {
+        const iq = await next;
+        if (token !== tx.token || !iq) break;
+        next = txBlock();
+        try {
+          await pluto.writeTx(iq);
+        } catch (e) {
+          if (token === tx.token) { toast('送信エラー: ' + e.message); tx.want = false; txKick(); }
+          break;
+        }
+      }
+    })();
+    return true;
+  }
+
+  async function txStopNow() {
+    tx.on = false;
+    tx.token++;
+    clearTimeout(tx.tot);
+    txWorker.postMessage({ type: 'stop' });
+    if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
+    updateTx();
+    await tx.loop;
+    if (pluto) {
+      try { await pluto.stopTx(); } catch (e) { /* ignore */ }
+      try { await pluto.txIdle(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // Brings the transmitter in line with tx.want, one transition at a time.
+  async function txKick() {
+    if (tx.busy) return;
+    tx.busy = true;
+    try {
+      while (tx.want !== tx.on) {
+        if (tx.want) {
+          let ok = false;
+          try { ok = await txStartNow(); } catch (e) { toast('送信できません: ' + e.message); }
+          if (!ok) { tx.want = false; if (pluto && pluto.tx) await txStopNow(); }
+        } else {
+          await txStopNow();
+        }
+      }
+    } finally {
+      tx.busy = false;
+      updateTx();
+    }
+  }
+
+  // PTT / CW key. In CW the key is passed to the modulator with its timing
+  // and the transmitter drops out CW_HANG ms after the last key-up.
+  function txKey(down, force) {
+    if (down) {
+      const why = txBlocked();
+      if (why) { toast(why); return; }
+    }
+    if (tx.keyDown === down && !force) return;
+    tx.keyDown = down;
+    if (S.mode === 'CW' && !force) {
+      clearTimeout(tx.hang);
+      if (down && !tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
+      txWorker.postMessage({ type: 'key', down, t: performance.now() });
+      sidetone(down);
+      if (down) { tx.want = true; txKick(); }
+      else tx.hang = setTimeout(() => { if (!tx.keyDown) { tx.want = false; txKick(); } }, CW_HANG);
+    } else {
+      sidetone(false);
+      clearTimeout(tx.hang);
+      tx.want = down;
+      txKick();
+    }
+    updateTx();
+  }
+
+  // Called after anything that changes frequency, mode or filter.
+  function txRetune() {
+    if (!tx.on && !tx.want) return;
+    const why = txBlocked();
+    if (why || (tx.on && (S.mode !== tx.mode || mode().bandwidth !== tx.bw))) {
+      if (why) toast(why);
+      tx.keyDown = false;
+      sidetone(false);
+      tx.want = false;
+      txKick();
+    } else if (tx.on && pluto) {
+      pluto.setTxFrequency(S.vfo).catch(() => {});
+    }
+  }
+
+  function updateTx() {
+    $('txInd').classList.toggle('on', tx.on);
+    $('btnPtt').classList.toggle('on', tx.on || tx.keyDown);
+    $('btnPtt').disabled = !pluto || !S.txEnabled;
+    $('btnPtt').textContent = S.mode === 'CW' ? 'KEY' : 'PTT';
+    dial.key = '';
+  }
+
+  function setTxEnabled(on) {
+    if (on && !S.txLicenseOk) {
+      on = confirm('送信機能を有効にします。\n\n' +
+        '・アマチュア無線局の免許を受け、この Pluto を無線設備として登録した局だけが送信できます。\n' +
+        '・スプリアス対策のフィルタ（LPF / BPF）を必ず入れてください。\n' +
+        '・アプリの制限（アマチュアバンド内のみ）は誤送信を防ぐ補助で、法令への適合を保証するものではありません。\n\n' +
+        '上記を理解し、法令を守って運用しますか？');
+      if (on) S.txLicenseOk = true;
+    }
+    S.txEnabled = on;
+    $('txEnabled').checked = on;
+    if (!on) { tx.keyDown = false; sidetone(false); tx.want = false; txKick(); }
+    updateTx();
+    save();
+  }
+
+  function bindTx() {
+    $('txEnabled').addEventListener('change', (e) => setTxEnabled(e.target.checked));
+    $('txAtten').addEventListener('input', (e) => {
+      S.txAtten = +e.target.value;
+      $('txAttenVal').textContent = S.txAtten.toFixed(2).replace(/\.?0+$/, '') + ' dB';
+      if (tx.on && pluto) pluto.setTxAttenuation(S.txAtten).catch(() => {});
+      save();
+    });
+    $('micGain').addEventListener('input', (e) => {
+      S.micGain = +e.target.value;
+      $('micGainVal').textContent = S.micGain + ' dB';
+      txWorker.postMessage({ type: 'gain', gain: 10 ** (S.micGain / 20) });
+      save();
+    });
+    const ptt = $('btnPtt');
+    ptt.addEventListener('pointerdown', (e) => { e.preventDefault(); ptt.setPointerCapture(e.pointerId); txKey(true); });
+    const up = () => { if (tx.keyDown) txKey(false); };
+    ptt.addEventListener('pointerup', up);
+    ptt.addEventListener('pointercancel', up);
+    // Never keep transmitting when the window loses focus.
+    window.addEventListener('blur', () => { if (tx.keyDown || tx.want) txKey(false, true); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && (tx.keyDown || tx.want)) txKey(false, true); });
+    $('txEnabled').checked = S.txEnabled;
+    $('txAtten').value = S.txAtten;
+    $('txAttenVal').textContent = S.txAtten + ' dB';
+    $('micGain').value = S.micGain;
+    $('micGainVal').textContent = S.micGain + ' dB';
+    updateTx();
   }
 
   // ---------------- AF / SQL knobs ----------------
@@ -2428,7 +3630,7 @@ registerProcessor('pluto-player', PlutoPlayer);
 
   function setVolume(v) {
     S.volume = v;
-    if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
+    if (audio && !tx.on) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
     save();
   }
 
@@ -2459,15 +3661,16 @@ registerProcessor('pluto-player', PlutoPlayer);
     g.addColorStop(0, '#040405'); g.addColorStop(0.7, '#141417'); g.addColorStop(1, '#2a2a30');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(cx, cy, Rb, 0, 2 * Math.PI); ctx.fill();
-    // Blue LED arcs on the left and right.
+    // LED arcs on the left and right: blue, red while transmitting.
     ctx.lineCap = 'round';
     for (const side of [0, Math.PI]) {
-      ctx.strokeStyle = '#2f7dff';
-      ctx.shadowColor = '#2f7dff'; ctx.shadowBlur = 9;
+      const led = tx.on ? '#ff3b30' : '#2f7dff';
+      ctx.strokeStyle = led;
+      ctx.shadowColor = led; ctx.shadowBlur = 9;
       ctx.lineWidth = 3.5;
       ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.7, side + 0.7); ctx.stroke();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(200,225,255,0.85)';
+      ctx.strokeStyle = tx.on ? 'rgba(255,215,205,0.85)' : 'rgba(200,225,255,0.85)';
       ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.62, side + 0.62); ctx.stroke();
     }
@@ -3108,6 +4311,7 @@ registerProcessor('pluto-player', PlutoPlayer);
   function setBandwidth(bw) {
     const m = mode();
     m.bandwidth = m.filters[m.fil] = bw;
+    txRetune();
     $('bandwidth').value = +(bw / 1e3).toFixed(2);
     updatePanel();
     workerConfig();
@@ -3333,6 +4537,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     document.querySelectorAll('#modes button').forEach((b) => b.addEventListener('click', () => {
       S.mode = b.dataset.mode;
       syncControls();
+      updateTx();
       workerConfig();
       setVfo(S.vfo);
       save();
@@ -3420,10 +4625,19 @@ registerProcessor('pluto-player', PlutoPlayer);
       save();
     });
 
+    // Space is PTT everywhere except in text fields.
+    const typing = (t) => !!t.matches && t.matches('input[type=text], input[type=number], select, textarea');
+    window.addEventListener('keyup', (e) => {
+      if (e.code !== 'Space' || typing(e.target)) return;
+      e.preventDefault();
+      txKey(false);
+    });
     window.addEventListener('keydown', (e) => {
-      if (e.target.matches('input, select, textarea')) return;
+      if (typing(e.target)) return;
+      if (e.code !== 'Space' && e.target.matches && e.target.matches('input')) return;
       const step = mode().snap || 1000;
-      if (e.code === 'Space') { e.preventDefault(); if (pluto) $('btnPlay').click(); }
+      if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) txKey(true); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (pluto) $('btnPlay').click(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); setVfo(snap(S.vfo) + step * (e.shiftKey ? 10 : 1)); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); setVfo(snap(S.vfo) - step * (e.shiftKey ? 10 : 1)); }
     });
@@ -3471,6 +4685,7 @@ registerProcessor('pluto-player', PlutoPlayer);
   buildPanel();
   updateBands();
   bindControls();
+  bindTx();
   syncControls();
   renderFreq();
   setStatus();

@@ -77,3 +77,42 @@ sp.addFrame(iq, 0);
 const db = sp.take();
 let bi = 0; for (let i = 0; i < db.length; i++) if (db[i] > db[bi]) bi = i;
 console.log('spectrum peak bin', bi, 'freq', ((bi - 4096) * fs / 8192 / 1e3).toFixed(1), 'kHz', 'level', db[bi].toFixed(1), 'dBFS (expect', (20 * Math.log10(1000 / 2048)).toFixed(1) + ')');
+
+// TX: modulate a tone with Transmitter, demodulate with Receiver at the
+// carrier (offset 0), and check pitch, occupied bandwidth and CPU.
+function txLoop(mode, bw, toneHz, opts = {}) {
+  const L = 50, r = fs / L;
+  const tx = new DSP.Transmitter({ fs, L, mode, bandwidth: bw, micGain: opts.gain ?? 3 });
+  const rx = new DSP.Receiver({ fs, offset: 0, mode, bandwidth: bw, deemph: 0, audioRate: 48000 });
+  const m = 4800, blocks = 12, out = [];
+  const spec = new DSP.Spectrum(8192, 'bh');
+  let t = 0, busy = 0;
+  if (mode === 'CW') { tx.keyAt(true, 1000); tx.keyAt(false, 30000); tx.keyAt(true, 34000); }
+  for (let b = 0; b < blocks; b++) {
+    const a = new Float32Array(m);
+    for (let i = 0; i < m; i++, t++) a[i] = 0.3 * Math.sin(2 * Math.PI * toneHz * t / r);
+    const s = performance.now();
+    const iq = tx.process(a, m);
+    busy += performance.now() - s;
+    if (b === blocks - 1) for (let i = 0; i + 8192 <= iq.length / 2; i += 8192) spec.addFrame(iq, i);
+    const re = new Float32Array(iq.length / 2), im = new Float32Array(iq.length / 2);
+    for (let i = 0; i < re.length; i++) { re[i] = iq[2 * i] / 32768; im[i] = iq[2 * i + 1] / 32768; }
+    out.push(...rx.process(re, im, re.length));
+  }
+  const Lch = Float32Array.from(out.filter((_, i) => i % 2 === 0));
+  const p = tonePitch(Lch, 48000);
+  // Occupied bandwidth: span holding 99% of the power.
+  const db = spec.take(), pw = Array.from(db, (d) => 10 ** (d / 10)), tot = pw.reduce((x, y) => x + y, 0);
+  const binHz = fs / 8192;
+  let lo = 0, hi = pw.length - 1, cut = 0;
+  while (cut + pw[lo] < tot * 0.005) cut += pw[lo++];
+  cut = 0; while (cut + pw[hi] < tot * 0.005) cut += pw[hi--];
+  const f = (i) => ((i - 4096) * binHz / 1e3).toFixed(1);
+  const cpu = busy / 10 / (blocks * m / r);
+  console.log(`TX ${mode.padEnd(4)} tone ${p.hz.toFixed(0)} Hz SNR ${p.snr.toFixed(1)} dB  99% power ${f(lo)}..${f(hi)} kHz  CPU ${cpu.toFixed(0)}%`);
+}
+txLoop('NFM', 15e3, 1000);
+txLoop('AM', 6e3, 1000);
+txLoop('USB', 2.4e3, 1000);
+txLoop('LSB', 2.4e3, 1000);
+txLoop('CW', 500, 0);

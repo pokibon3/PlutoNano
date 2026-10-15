@@ -12,7 +12,9 @@ const page = process.env.PAGE || 'file://' + resolve('dist/PlutoNano.html');
 const chrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const prof = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'cdp-'));
 const proc = spawn(chrome, ['--headless=new', '--remote-debugging-port=9333', `--user-data-dir=${prof}`,
-  '--window-size=1400,850', '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' });
+  '--window-size=1400,850', '--autoplay-policy=no-user-gesture-required',
+  // Fake microphone for the TX path.
+  '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', 'about:blank'], { stdio: 'ignore' });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let targets;

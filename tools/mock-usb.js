@@ -11,6 +11,11 @@
     '<device id="iio:device3" name="cf-ad9361-lpc">' +
     '<channel id="voltage0" type="input"><scan-element index="0" format="le:S12/16&gt;&gt;0"/></channel>' +
     '<channel id="voltage1" type="input"><scan-element index="1" format="le:S12/16&gt;&gt;0"/></channel>' +
+    '</device>' +
+    '<device id="iio:device2" name="cf-ad9361-dds-core-lpc">' +
+    '<channel id="voltage0" type="output"><scan-element index="0" format="le:S16/16&gt;&gt;0"/></channel>' +
+    '<channel id="voltage1" type="output"><scan-element index="1" format="le:S16/16&gt;&gt;0"/></channel>' +
+    '<channel id="altvoltage0" type="output"/>' +
     '</device></context>';
 
   const attrs = {
@@ -73,11 +78,17 @@
 
   function keyOf(parts) {
     // READ dev [INPUT|OUTPUT chan] attr
-    if (parts.length >= 4 && (parts[2] === 'INPUT' || parts[2] === 'OUTPUT')) return parts[3] + '/' + parts[4];
+    if (parts.length >= 4 && (parts[2] === 'INPUT' || parts[2] === 'OUTPUT')) {
+      // TX data channels share ids with RX ones (voltage0).
+      const tx = parts[2] === 'OUTPUT' && /^voltage/.test(parts[3]) ? 'tx-' : '';
+      return tx + parts[3] + '/' + parts[4];
+    }
     return parts[2];
   }
 
-  const pipes = [new Pipe(), new Pipe()];
+  const pipes = [new Pipe(), new Pipe(), new Pipe()];
+  // TX statistics for tools/browser-check.mjs.
+  const txStats = window.__mockTx = { blocks: 0, samples: 0, peak: 0 };
 
   function handle(p, text) {
     if (p.pendingWrite) {
@@ -96,6 +107,11 @@
         break;
       }
       case 'WRITE': p.pendingWrite = keyOf(parts); break;
+      case 'WRITEBUF': {
+        p.txLeft = p.txTotal = +parts[2];
+        p.push(parts[2] + '\n');
+        break;
+      }
       case 'READBUF': {
         const bytes = +parts[2];
         const fs = +attrs['voltage0/sampling_frequency'];
@@ -118,7 +134,22 @@
     async controlTransferOut() { return { status: 'ok' }; },
     async transferOut(ep, data) {
       const u8 = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
-      handle(pipes[ep - 1], dec.decode(u8));
+      const p = pipes[ep - 1];
+      if (p.txLeft) {
+        // WRITEBUF payload: take it at the sample rate.
+        const iq = new Int16Array(u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength));
+        for (let i = 0; i < iq.length; i++) txStats.peak = Math.max(txStats.peak, Math.abs(iq[i]));
+        p.txLeft -= u8.length;
+        if (p.txLeft <= 0) {
+          const bytes = p.txTotal;
+          p.txLeft = 0;
+          txStats.blocks++;
+          txStats.samples += bytes / 4;
+          setTimeout(() => p.push(bytes + '\n'), bytes / 4 / +attrs['voltage0/sampling_frequency'] * 1000);
+        }
+        return { status: 'ok', bytesWritten: u8.length };
+      }
+      handle(p, dec.decode(u8));
       return { status: 'ok', bytesWritten: u8.length };
     },
     transferIn(ep, len) { return pipes[ep - 1].read(len); },
@@ -130,6 +161,7 @@
           endpoints: [
             { endpointNumber: 1, direction: 'in' }, { endpointNumber: 1, direction: 'out' },
             { endpointNumber: 2, direction: 'in' }, { endpointNumber: 2, direction: 'out' },
+            { endpointNumber: 3, direction: 'in' }, { endpointNumber: 3, direction: 'out' },
           ],
         }],
       }],

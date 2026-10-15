@@ -2,7 +2,8 @@
 //
 // Speaks the IIOD text protocol that libiio's USB backend uses: the device
 // exposes a vendor interface named "IIO" with pairs of bulk endpoints
-// ("pipes"). Pipe 0 carries context/attribute commands, pipe 1 streams RX.
+// ("pipes"). Pipe 0 carries context/attribute commands, pipe 1 streams RX
+// and pipe 2 (when present) streams TX.
 // Works with navigator.usb in the browser and node-usb's WebUSB in Node.
 
 (function (root) {
@@ -149,6 +150,7 @@
       this.pipes = [];
       this.devices = [];
       this.rx = null;
+      this.tx = null;
     }
 
     static async request(usb = root.navigator && root.navigator.usb) {
@@ -219,6 +221,7 @@
       this.phy = this.findDevice('ad9361-phy');
       this.rxDev = this.findDevice('cf-ad9361-lpc');
       if (!this.phy || !this.rxDev) throw new Error('AD936x devices not found');
+      this.txDev = this.findDevice('cf-ad9361-dds-core-lpc');
       return this;
     }
 
@@ -261,6 +264,9 @@
 
     static get RX() { return { id: 'voltage0', output: false }; }
     static get RX_LO() { return { id: 'altvoltage0', output: true }; }
+    static get TX() { return { id: 'voltage0', output: true }; }
+    static get TX_LO() { return { id: 'altvoltage1', output: true }; }
+    static get TX_ATTEN_MIN() { return -89.75; }
 
     setFrequency(hz) { return this.phyWrite(Pluto.RX_LO, 'frequency', Math.round(hz)); }
     async getFrequency() { return parseInt(await this.phyRead(Pluto.RX_LO, 'frequency'), 10); }
@@ -283,13 +289,37 @@
     }
 
     // Number of kernel DMA blocks queued behind the stream. Fewer blocks means
-    // less stale data after a retune; must be set before startRx().
-    setKernelBuffers(count) {
+    // less stale data after a retune; must be set before startRx() / startTx().
+    setKernelBuffers(count, dev = this.rxDev) {
       const p = this.pipes[0];
       return p.queue.run(async () => {
-        const r = await p.exec(`SET ${this.rxDev.id} BUFFERS_COUNT ${count}\r\n`);
+        const r = await p.exec(`SET ${dev.id} BUFFERS_COUNT ${count}\r\n`);
         if (r < 0) throw new Error(`BUFFERS_COUNT failed: ${r}`);
       });
+    }
+
+    // ---- TX controls ----
+    get canTx() { return !!this.txDev && this.pipes.length >= 3; }
+    setTxFrequency(hz) { return this.phyWrite(Pluto.TX_LO, 'frequency', Math.round(hz)); }
+    // Attenuation in dB, 0 (full power) down to TX_ATTEN_MIN, 0.25 dB steps.
+    setTxAttenuation(db) {
+      const v = Math.max(Pluto.TX_ATTEN_MIN, Math.min(0, Math.round(db * 4) / 4));
+      return this.phyWrite(Pluto.TX, 'hardwaregain', v.toFixed(2));
+    }
+    setTxLoPower(on) { return this.phyWrite(Pluto.TX_LO, 'powerdown', on ? 0 : 1); }
+    // The DDS tone generator drives the DAC whenever no TX buffer is open.
+    async disableDds() {
+      for (const ch of this.txDev.channels) {
+        if (ch.type !== 'output' || !/^altvoltage/.test(ch.id)) continue;
+        await this.writeAttr(this.txDev, { id: ch.id, output: true }, 'raw', 0).catch(() => {});
+      }
+    }
+    // Quiet state between transmissions: DDS off, TX LO off, minimum level.
+    async txIdle() {
+      if (!this.canTx) return;
+      await this.disableDds();
+      await this.setTxAttenuation(Pluto.TX_ATTEN_MIN);
+      await this.setTxLoPower(false);
     }
 
     // ---- RX streaming on pipe 1 ----
@@ -349,7 +379,64 @@
       }
     }
 
+    // ---- TX streaming on pipe 2 ----
+    async startTx(samples) {
+      if (!this.canTx) throw new Error('TX not available');
+      if (this.tx) await this.stopTx();
+      const dev = this.txDev;
+      const words = Math.ceil(dev.channels.length / 32);
+      const mask = new Uint32Array(words);
+      for (const ch of dev.channels) {
+        if (ch.index >= 0 && (ch.id === 'voltage0' || ch.id === 'voltage1') && ch.type === 'output') {
+          mask[ch.number >> 5] |= 1 << (ch.number & 31);
+        }
+      }
+      let maskHex = '';
+      for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
+
+      const p = this.pipes[2];
+      await this.control(CMD_OPEN_PIPE, p.id);
+      await p.clearHalt();
+      await p.queue.run(async () => {
+        const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
+        if (r < 0) throw new Error(`TX OPEN failed: ${r}`);
+        await p.exec('TIMEOUT 2000\r\n');
+      });
+      this.tx = { samples, bytes: samples * 4 };
+    }
+
+    // Queues one block of interleaved I/Q (Int16Array, 12-bit values
+    // MSB-aligned in 16 bits). Resolves once the device has taken it, which
+    // paces the caller at the sample rate.
+    writeTx(iq) {
+      const p = this.pipes[2];
+      const tx = this.tx;
+      if (!tx) return Promise.reject(new Error('TX not started'));
+      const bytes = new Uint8Array(iq.buffer, iq.byteOffset, iq.byteLength);
+      return p.queue.run(async () => {
+        await p.write(enc.encode(`WRITEBUF ${this.txDev.id} ${bytes.length}\r\n`));
+        const r0 = await p.readInt();
+        if (r0 < 0) throw new Error(`WRITEBUF failed: ${r0}`);
+        await p.write(bytes);
+        const r = await p.readInt();
+        if (r < 0) throw new Error(`WRITEBUF failed: ${r}`);
+        return r;
+      });
+    }
+
+    async stopTx() {
+      if (!this.tx) return;
+      const p = this.pipes[2];
+      this.tx = null;
+      try {
+        await p.queue.run(() => p.exec(`CLOSE ${this.txDev.id}\r\n`));
+      } finally {
+        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
+      }
+    }
+
     async close() {
+      try { await this.stopTx(); } catch (e) { /* device may be gone */ }
       try { await this.stopRx(); } catch (e) { /* device may be gone */ }
       try { await this.control(CMD_RESET_PIPES, 0); } catch (e) {}
       try { await this.usb.releaseInterface(this.iface); } catch (e) {}

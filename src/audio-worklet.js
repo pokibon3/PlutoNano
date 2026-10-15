@@ -66,3 +66,32 @@ class PlutoPlayer extends AudioWorkletProcessor {
 }
 
 registerProcessor('pluto-player', PlutoPlayer);
+
+// Microphone capture for TX: forwards mono input in 256-sample chunks to a
+// MessagePort (the TX worker). Outputs silence.
+class PlutoMic extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.dst = null;
+    this.buf = new Float32Array(256);
+    this.n = 0;
+    this.port.onmessage = (e) => { if (e.data && e.data.port) this.dst = e.data.port; };
+  }
+
+  process(inputs) {
+    const x = inputs[0] && inputs[0][0];
+    if (x && this.dst) {
+      for (let i = 0; i < x.length; i++) {
+        this.buf[this.n++] = x[i];
+        if (this.n === this.buf.length) {
+          this.dst.postMessage(this.buf, [this.buf.buffer]);
+          this.buf = new Float32Array(256);
+          this.n = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+
+registerProcessor('pluto-mic', PlutoMic);

@@ -45,7 +45,7 @@
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
-    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true,
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
   };
 
   // ---------------- settings ----------------
@@ -161,6 +161,7 @@
     for (const url of ['data:text/javascript;base64,' + btoa(unescape(encodeURIComponent(code))), blobUrl('worklet-src')]) {
       try { await ctx.audioWorklet.addModule(url); node = new AudioWorkletNode(ctx, 'pluto-player', { numberOfInputs: 0, outputChannelCount: [2] }); break; } catch (e) { /* try next */ }
     }
+    ctx.hasWorklet = !!node;
     if (node) {
       node.port.postMessage({ port: ch.port1 }, [ch.port1]);
     } else {
@@ -230,6 +231,8 @@
     $('btnScan').classList.toggle('active', state === 'sweep');
     updateMeter();
     $('loVal').textContent = pluto ? fmtHz(curLo, 6) : '—';
+    updateTx();
+    txRetune();
   }
 
   async function connect(interactive) {
@@ -252,6 +255,8 @@
         toast(`周波数範囲が ${fmtHz(lo.min, 0)}〜${fmtHz(lo.max, 1)} に制限されています（AD9363 モード）。`, 'info');
       }
       await applySource();
+      // Keep the transmitter quiet until PTT (the DDS tone is on at boot).
+      await p.txIdle().catch(() => {});
       setStatus();
       toast('Pluto に接続しました', 'info');
       await startLive();
@@ -269,6 +274,7 @@
   async function disconnect() {
     const p = pluto;
     if (!p) return;
+    if (tx.on || tx.want) { tx.keyDown = false; sidetone(false); tx.want = false; await txStopNow(); }
     await stopStream();
     pluto = null;
     clearInterval(rssiTimer);
@@ -280,6 +286,8 @@
 
   function onDeviceLost(msg) {
     streamToken++;
+    tx.want = tx.keyDown = false;
+    if (tx.on) { tx.on = false; tx.token++; clearTimeout(tx.tot); sidetone(false); }
     state = 'idle';
     pluto = null;
     clearInterval(rssiTimer);
@@ -488,6 +496,7 @@
     else workerConfig();
     renderFreq();
     updateBands();
+    txRetune();
     dirty = true;
     save();
   }
@@ -846,9 +855,10 @@
   }
 
   function scopeTick(now) {
-    const live = !!audio && state === 'live';
+    const micOn = tx.on && !!tx.mic && S.mode !== 'CW';
+    const live = !!audio && (state === 'live' || micOn);
     const pb = audioPassband();
-    const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live].join();
+    const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live, micOn].join();
     if (live ? now - scope.last < 33 : key === scope.key) return;
     scope.last = now;
     scope.key = key;
@@ -883,7 +893,7 @@
     ctx.beginPath(); ctx.moveTo(0, ph + 0.5); ctx.lineTo(w, ph + 0.5); ctx.stroke();
     if (!live) return;
     // Spectrum, -100..-20 dBFS.
-    const an = audio.analyser;
+    const an = micOn ? tx.mic.analyser : audio.analyser;
     if (!scope.buf || scope.buf.length !== an.frequencyBinCount) scope.buf = new Float32Array(an.frequencyBinCount);
     an.getFloatFrequencyData(scope.buf);
     const binHz = audio.ctx.sampleRate / an.fftSize;
@@ -900,6 +910,271 @@
     ctx.closePath();
     ctx.fillStyle = c.dim;
     ctx.fill();
+  }
+
+  // ---------------- transmit ----------------
+  // Japanese amateur bands within the Pluto's range. TX is allowed only when
+  // the whole emission (txEdges) lies inside one of them.
+  const TX_BANDS = [[144e6, 146e6], [430e6, 440e6], [1260e6, 1300e6], [2400e6, 2450e6], [5650e6, 5850e6]];
+  const TX_MODES = ['NFM', 'AM', 'USB', 'LSB', 'CW'];
+  const TX_TOT = 180e3;      // time-out timer
+  const CW_HANG = 800;       // semi break-in: stay on the air this long after the key opens
+  const TX_KERNEL_BUFFERS = 4;
+  const txWorker = new Worker(blobUrl('txworker-src'));
+  const tx = {
+    on: false, want: false, busy: false, token: 0, loop: null, tot: 0, hang: 0,
+    mic: null, stream: null, side: null, keyDown: false, reqId: 0, pending: new Map(),
+  };
+  txWorker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'block') { const r = tx.pending.get(m.id); tx.pending.delete(m.id); if (r) r(m.iq); }
+  };
+
+  function txEdges(f = S.vfo) {
+    const bw = mode().bandwidth;
+    switch (S.mode) {
+      case 'NFM': return [f - 8e3, f + 8e3];
+      case 'AM': return [f - 3e3, f + 3e3];
+      case 'USB': return [f, f + SSB_LOWCUT + bw];
+      case 'LSB': return [f - SSB_LOWCUT - bw, f];
+      case 'CW': return [f - 250, f + 250];
+      default: return null;
+    }
+  }
+
+  // Why TX is not possible right now, or '' when it is.
+  function txBlocked() {
+    if (!pluto) return 'Pluto が接続されていません';
+    if (!pluto.canTx) return 'この Pluto では送信できません';
+    if (!S.txEnabled) return '送信が無効です（サイドバーの Transmit で有効にしてください）';
+    if (!TX_MODES.includes(S.mode)) return `${S.mode} では送信できません`;
+    if (state === 'sweep') return 'スキャン中は送信できません';
+    const [a, b] = txEdges();
+    if (!TX_BANDS.some(([lo, hi]) => a >= lo && b <= hi)) return 'アマチュアバンド外のため送信できません';
+    return '';
+  }
+
+  // Modulator rate: fs / L close to the 48 kHz audio rate.
+  function txRates() {
+    const fs = S.sampleRate, L = Math.max(1, Math.round(fs / 48000));
+    return { fs, L, r: fs / L, m: Math.round(fs / L * 0.01) };
+  }
+
+  async function ensureMic() {
+    if (!tx.stream) {
+      tx.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      });
+    }
+    if (tx.mic) return;
+    if (!audio.ctx.hasWorklet) throw new Error('AudioWorklet が使えません');
+    const ctx = audio.ctx;
+    const src = ctx.createMediaStreamSource(tx.stream);
+    const node = new AudioWorkletNode(ctx, 'pluto-mic', { numberOfInputs: 1, numberOfOutputs: 1 });
+    // A silent path to the output keeps the node processing.
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    node.connect(sink).connect(ctx.destination);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0.6;
+    src.connect(node);
+    src.connect(analyser);
+    const ch = new MessageChannel();
+    node.port.postMessage({ port: ch.port1 }, [ch.port1]);
+    txWorker.postMessage({ type: 'micPort', port: ch.port2 }, [ch.port2]);
+    tx.mic = { node, analyser };
+  }
+
+  // CW sidetone at the receive pitch, gated with a short ramp.
+  function sidetone(on) {
+    if (!audio) return;
+    const ctx = audio.ctx;
+    if (!tx.side) {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = CW_PITCH;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      osc.connect(g).connect(ctx.destination);
+      osc.start();
+      tx.side = g;
+    }
+    tx.side.gain.setTargetAtTime(on ? 0.15 * S.volume : 0, ctx.currentTime, 0.003);
+  }
+
+  function txBlock() {
+    return new Promise((resolve) => {
+      const id = ++tx.reqId;
+      tx.pending.set(id, resolve);
+      txWorker.postMessage({ type: 'block', id, m: txRates().m });
+    });
+  }
+
+  async function txStartNow() {
+    const why = txBlocked();
+    if (why) { toast(why); return false; }
+    await ensureAudio();
+    if (S.mode !== 'CW') await ensureMic();
+    const { fs, L, m } = txRates();
+    txWorker.postMessage({
+      type: 'config',
+      cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate },
+    });
+    await pluto.disableDds();
+    await pluto.setTxFrequency(S.vfo);
+    await pluto.setTxAttenuation(S.txAtten);
+    await pluto.setKernelBuffers(TX_KERNEL_BUFFERS, pluto.txDev);
+    await pluto.startTx(m * L);
+    await pluto.setTxLoPower(true);
+    const token = ++tx.token;
+    tx.on = true;
+    tx.mode = S.mode; tx.bw = mode().bandwidth;
+    audio.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.01);
+    tx.tot = setTimeout(() => { toast('タイムアウト（3 分）で送信を止めました', 'info'); txKey(false, true); }, TX_TOT);
+    updateTx();
+    tx.loop = (async () => {
+      let next = txBlock();
+      while (token === tx.token) {
+        const iq = await next;
+        if (token !== tx.token || !iq) break;
+        next = txBlock();
+        try {
+          await pluto.writeTx(iq);
+        } catch (e) {
+          if (token === tx.token) { toast('送信エラー: ' + e.message); tx.want = false; txKick(); }
+          break;
+        }
+      }
+    })();
+    return true;
+  }
+
+  async function txStopNow() {
+    tx.on = false;
+    tx.token++;
+    clearTimeout(tx.tot);
+    txWorker.postMessage({ type: 'stop' });
+    if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
+    updateTx();
+    await tx.loop;
+    if (pluto) {
+      try { await pluto.stopTx(); } catch (e) { /* ignore */ }
+      try { await pluto.txIdle(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // Brings the transmitter in line with tx.want, one transition at a time.
+  async function txKick() {
+    if (tx.busy) return;
+    tx.busy = true;
+    try {
+      while (tx.want !== tx.on) {
+        if (tx.want) {
+          let ok = false;
+          try { ok = await txStartNow(); } catch (e) { toast('送信できません: ' + e.message); }
+          if (!ok) { tx.want = false; if (pluto && pluto.tx) await txStopNow(); }
+        } else {
+          await txStopNow();
+        }
+      }
+    } finally {
+      tx.busy = false;
+      updateTx();
+    }
+  }
+
+  // PTT / CW key. In CW the key is passed to the modulator with its timing
+  // and the transmitter drops out CW_HANG ms after the last key-up.
+  function txKey(down, force) {
+    if (down) {
+      const why = txBlocked();
+      if (why) { toast(why); return; }
+    }
+    if (tx.keyDown === down && !force) return;
+    tx.keyDown = down;
+    if (S.mode === 'CW' && !force) {
+      clearTimeout(tx.hang);
+      if (down && !tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
+      txWorker.postMessage({ type: 'key', down, t: performance.now() });
+      sidetone(down);
+      if (down) { tx.want = true; txKick(); }
+      else tx.hang = setTimeout(() => { if (!tx.keyDown) { tx.want = false; txKick(); } }, CW_HANG);
+    } else {
+      sidetone(false);
+      clearTimeout(tx.hang);
+      tx.want = down;
+      txKick();
+    }
+    updateTx();
+  }
+
+  // Called after anything that changes frequency, mode or filter.
+  function txRetune() {
+    if (!tx.on && !tx.want) return;
+    const why = txBlocked();
+    if (why || (tx.on && (S.mode !== tx.mode || mode().bandwidth !== tx.bw))) {
+      if (why) toast(why);
+      tx.keyDown = false;
+      sidetone(false);
+      tx.want = false;
+      txKick();
+    } else if (tx.on && pluto) {
+      pluto.setTxFrequency(S.vfo).catch(() => {});
+    }
+  }
+
+  function updateTx() {
+    $('txInd').classList.toggle('on', tx.on);
+    $('btnPtt').classList.toggle('on', tx.on || tx.keyDown);
+    $('btnPtt').disabled = !pluto || !S.txEnabled;
+    $('btnPtt').textContent = S.mode === 'CW' ? 'KEY' : 'PTT';
+    dial.key = '';
+  }
+
+  function setTxEnabled(on) {
+    if (on && !S.txLicenseOk) {
+      on = confirm('送信機能を有効にします。\n\n' +
+        '・アマチュア無線局の免許を受け、この Pluto を無線設備として登録した局だけが送信できます。\n' +
+        '・スプリアス対策のフィルタ（LPF / BPF）を必ず入れてください。\n' +
+        '・アプリの制限（アマチュアバンド内のみ）は誤送信を防ぐ補助で、法令への適合を保証するものではありません。\n\n' +
+        '上記を理解し、法令を守って運用しますか？');
+      if (on) S.txLicenseOk = true;
+    }
+    S.txEnabled = on;
+    $('txEnabled').checked = on;
+    if (!on) { tx.keyDown = false; sidetone(false); tx.want = false; txKick(); }
+    updateTx();
+    save();
+  }
+
+  function bindTx() {
+    $('txEnabled').addEventListener('change', (e) => setTxEnabled(e.target.checked));
+    $('txAtten').addEventListener('input', (e) => {
+      S.txAtten = +e.target.value;
+      $('txAttenVal').textContent = S.txAtten.toFixed(2).replace(/\.?0+$/, '') + ' dB';
+      if (tx.on && pluto) pluto.setTxAttenuation(S.txAtten).catch(() => {});
+      save();
+    });
+    $('micGain').addEventListener('input', (e) => {
+      S.micGain = +e.target.value;
+      $('micGainVal').textContent = S.micGain + ' dB';
+      txWorker.postMessage({ type: 'gain', gain: 10 ** (S.micGain / 20) });
+      save();
+    });
+    const ptt = $('btnPtt');
+    ptt.addEventListener('pointerdown', (e) => { e.preventDefault(); ptt.setPointerCapture(e.pointerId); txKey(true); });
+    const up = () => { if (tx.keyDown) txKey(false); };
+    ptt.addEventListener('pointerup', up);
+    ptt.addEventListener('pointercancel', up);
+    // Never keep transmitting when the window loses focus.
+    window.addEventListener('blur', () => { if (tx.keyDown || tx.want) txKey(false, true); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && (tx.keyDown || tx.want)) txKey(false, true); });
+    $('txEnabled').checked = S.txEnabled;
+    $('txAtten').value = S.txAtten;
+    $('txAttenVal').textContent = S.txAtten + ' dB';
+    $('micGain').value = S.micGain;
+    $('micGainVal').textContent = S.micGain + ' dB';
+    updateTx();
   }
 
   // ---------------- AF / SQL knobs ----------------
@@ -967,7 +1242,7 @@
 
   function setVolume(v) {
     S.volume = v;
-    if (audio) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
+    if (audio && !tx.on) audio.gain.gain.setTargetAtTime(S.volume ** 2, audio.ctx.currentTime, 0.02);
     save();
   }
 
@@ -998,15 +1273,16 @@
     g.addColorStop(0, '#040405'); g.addColorStop(0.7, '#141417'); g.addColorStop(1, '#2a2a30');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(cx, cy, Rb, 0, 2 * Math.PI); ctx.fill();
-    // Blue LED arcs on the left and right.
+    // LED arcs on the left and right: blue, red while transmitting.
     ctx.lineCap = 'round';
     for (const side of [0, Math.PI]) {
-      ctx.strokeStyle = '#2f7dff';
-      ctx.shadowColor = '#2f7dff'; ctx.shadowBlur = 9;
+      const led = tx.on ? '#ff3b30' : '#2f7dff';
+      ctx.strokeStyle = led;
+      ctx.shadowColor = led; ctx.shadowBlur = 9;
       ctx.lineWidth = 3.5;
       ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.7, side + 0.7); ctx.stroke();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(200,225,255,0.85)';
+      ctx.strokeStyle = tx.on ? 'rgba(255,215,205,0.85)' : 'rgba(200,225,255,0.85)';
       ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.62, side + 0.62); ctx.stroke();
     }
@@ -1647,6 +1923,7 @@
   function setBandwidth(bw) {
     const m = mode();
     m.bandwidth = m.filters[m.fil] = bw;
+    txRetune();
     $('bandwidth').value = +(bw / 1e3).toFixed(2);
     updatePanel();
     workerConfig();
@@ -1872,6 +2149,7 @@
     document.querySelectorAll('#modes button').forEach((b) => b.addEventListener('click', () => {
       S.mode = b.dataset.mode;
       syncControls();
+      updateTx();
       workerConfig();
       setVfo(S.vfo);
       save();
@@ -1959,10 +2237,19 @@
       save();
     });
 
+    // Space is PTT everywhere except in text fields.
+    const typing = (t) => !!t.matches && t.matches('input[type=text], input[type=number], select, textarea');
+    window.addEventListener('keyup', (e) => {
+      if (e.code !== 'Space' || typing(e.target)) return;
+      e.preventDefault();
+      txKey(false);
+    });
     window.addEventListener('keydown', (e) => {
-      if (e.target.matches('input, select, textarea')) return;
+      if (typing(e.target)) return;
+      if (e.code !== 'Space' && e.target.matches && e.target.matches('input')) return;
       const step = mode().snap || 1000;
-      if (e.code === 'Space') { e.preventDefault(); if (pluto) $('btnPlay').click(); }
+      if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) txKey(true); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (pluto) $('btnPlay').click(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); setVfo(snap(S.vfo) + step * (e.shiftKey ? 10 : 1)); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); setVfo(snap(S.vfo) - step * (e.shiftKey ? 10 : 1)); }
     });
@@ -2010,6 +2297,7 @@
   buildPanel();
   updateBands();
   bindControls();
+  bindTx();
   syncControls();
   renderFreq();
   setStatus();

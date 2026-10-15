@@ -165,6 +165,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 .tag.flag { color: var(--lcd-ghost); border-color: var(--lcd-ghost); }
 .tag.flag.on { color: var(--lcd-bg); background: var(--lcd); border-color: var(--lcd); box-shadow: 0 0 6px var(--lcd-dim); }
 #clock { border-color: transparent; color: var(--lcd-dim); }
+.tag.flag.tx.on { color: #fff; background: #e5332a; border-color: #ff5b4a; box-shadow: 0 0 8px #ff5b4a; }
 
 .freq-row { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 0; }
 .freq-row .freq { margin-left: auto; }
@@ -228,3 +229,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 @container (max-width: 700px) { .meter-box { display: none; } #afScope { display: none; } }
 @container (max-width: 470px) { .dial-box { display: none; } .freq-box .info .tag:not(.flag):not(#modeBadge) { display: none; } }
 #toast[hidden] { display: none; }
+
+/* Push-to-talk button: red while transmitting. */
+button.ptt { font-weight: 700; letter-spacing: 0.1em; padding: 10px 0; touch-action: none; user-select: none; }
+button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-shadow: 0 0 10px rgba(255, 91, 74, 0.6); }

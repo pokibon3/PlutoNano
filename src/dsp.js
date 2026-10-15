@@ -455,7 +455,128 @@
     }
   }
 
-  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Spectrum };
+  // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
+  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto DAC.
+  // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
+  const NFM_DEV = 5e3;
+  class Transmitter {
+    constructor(o) {
+      this.fs = o.fs;
+      this.L = o.L;
+      this.micRate = o.fs / o.L;
+      this.mode = o.mode;
+      this.bandwidth = o.bandwidth;
+      this.micGain = o.micGain ?? 1;
+      const r = this.micRate;
+      // Voice: 300 Hz high-pass (biquad), clip, then FIR band limit.
+      const w0 = TAU * 300 / r, al = Math.sin(w0) / Math.SQRT2, c = Math.cos(w0), a0 = 1 + al;
+      this.hp = { b0: (1 + c) / 2 / a0, b1: -(1 + c) / a0, b2: (1 + c) / 2 / a0, a1: -2 * c / a0, a2: (1 - al) / a0, x1: 0, x2: 0, y1: 0, y2: 0 };
+      const ssb = this.mode === 'USB' || this.mode === 'LSB';
+      if (ssb) {
+        // Complex band-pass: keeps only SSB_LOWCUT..SSB_LOWCUT+bw of the
+        // positive frequencies, which is the USB signal itself.
+        const lp = lowpass(r, this.bandwidth / 2, 300, 'blackman');
+        const f0 = SSB_LOWCUT + this.bandwidth / 2;
+        this.fr = new Float32Array(lp.length); this.fi = new Float32Array(lp.length);
+        for (let k = 0; k < lp.length; k++) {
+          const ph = TAU * f0 * k / r;
+          this.fr[k] = 2 * lp[k] * Math.cos(ph); this.fi[k] = 2 * lp[k] * Math.sin(ph);
+        }
+      } else {
+        this.fr = lowpass(r, 3000, 600, 'blackman'); this.fi = null;
+      }
+      this.hist = new Float32Array(this.fr.length * 2);
+      this.hpos = 0;
+      this.phase = 0;
+      // Interpolation to fs: polyphase low-pass, gain L.
+      const cut = this.mode === 'NFM' ? NFM_DEV + 3500 : 4000;
+      const h = lowpass(this.fs, cut, Math.max(r - 2 * cut, 4000), 'blackman');
+      const P = Math.ceil(h.length / this.L);
+      this.P = P;
+      this.poly = [];
+      for (let ph = 0; ph < this.L; ph++) {
+        const t = new Float32Array(P);
+        for (let k = 0; k < P; k++) { const i = k * this.L + ph; t[k] = i < h.length ? h[i] * this.L : 0; }
+        this.poly.push(t);
+      }
+      this.ir = new Float32Array(P * 2); this.ii = new Float32Array(P * 2); this.ipos = 0;
+      // CW keying: sample-accurate schedule of [sample, down] events and a
+      // raised-cosine envelope.
+      this.key = false; this.env = 0;
+      this.rampStep = 1 / (r * 0.005);
+      this.keyEvents = [];
+      this.pos = 0; // samples generated at micRate
+    }
+
+    keyAt(down, sample) { this.keyEvents.push([sample, down]); }
+
+    voice(x) {
+      const h = this.hp;
+      const y = h.b0 * x + h.b1 * h.x1 + h.b2 * h.x2 - h.a1 * h.y1 - h.a2 * h.y2;
+      h.x2 = h.x1; h.x1 = x; h.y2 = h.y1; h.y1 = y;
+      // Soft clip: limits peak deviation / modulation, the FIR removes the splatter.
+      const v = y * this.micGain;
+      return v / (1 + Math.abs(v));
+    }
+
+    // Band-limit one voice sample; returns [re, im] via this.br / this.bi.
+    band(v) {
+      const n = this.fr.length, hist = this.hist;
+      hist[this.hpos] = hist[this.hpos + n] = v;
+      this.hpos = this.hpos + 1 === n ? 0 : this.hpos + 1;
+      let re = 0, im = 0;
+      const o = this.hpos;
+      // hist[o .. o+n-1] is oldest..newest.
+      const fr = this.fr, fi = this.fi;
+      if (fi) for (let k = 0; k < n; k++) { const x = hist[o + n - 1 - k]; re += fr[k] * x; im += fi[k] * x; }
+      else for (let k = 0; k < n; k++) re += fr[k] * hist[o + n - 1 - k];
+      this.br = re; this.bi = im;
+    }
+
+    // audio: Float32Array of m samples at micRate (CW: ignored). Returns
+    // Int16Array of m * L interleaved I/Q pairs.
+    process(audio, m) {
+      const L = this.L, P = this.P, out = new Int16Array(m * L * 2);
+      const mode = this.mode;
+      let o = 0;
+      for (let i = 0; i < m; i++, this.pos++) {
+        let re = 0, im = 0;
+        if (mode === 'CW') {
+          while (this.keyEvents.length && this.keyEvents[0][0] <= this.pos) this.key = this.keyEvents.shift()[1];
+          this.env = this.key ? Math.min(1, this.env + this.rampStep) : Math.max(0, this.env - this.rampStep);
+          re = 0.9 * (0.5 - 0.5 * Math.cos(Math.PI * this.env));
+        } else {
+          this.band(this.voice(audio[i]));
+          if (mode === 'NFM') {
+            this.phase += TAU * NFM_DEV * this.br / this.micRate;
+            if (this.phase > Math.PI) this.phase -= TAU; else if (this.phase < -Math.PI) this.phase += TAU;
+            re = 0.9 * Math.cos(this.phase); im = 0.9 * Math.sin(this.phase);
+          } else if (mode === 'AM') {
+            re = 0.45 * (1 + 0.9 * Math.max(-1, Math.min(1, this.br)));
+          } else {
+            re = 0.9 * this.br; im = mode === 'LSB' ? -0.9 * this.bi : 0.9 * this.bi;
+            const a = Math.hypot(re, im);
+            if (a > 0.95) { re *= 0.95 / a; im *= 0.95 / a; }
+          }
+        }
+        // Polyphase interpolation by L.
+        this.ir[this.ipos] = this.ir[this.ipos + P] = re;
+        this.ii[this.ipos] = this.ii[this.ipos + P] = im;
+        this.ipos = this.ipos + 1 === P ? 0 : this.ipos + 1;
+        const base = this.ipos + P - 1;
+        for (let ph = 0; ph < L; ph++) {
+          const t = this.poly[ph];
+          let yr = 0, yi = 0;
+          for (let k = 0; k < P; k++) { yr += t[k] * this.ir[base - k]; yi += t[k] * this.ii[base - k]; }
+          out[o++] = Math.max(-2047, Math.min(2047, Math.round(yr * 2047))) << 4;
+          out[o++] = Math.max(-2047, Math.min(2047, Math.round(yi * 2047))) << 4;
+        }
+      }
+      return out;
+    }
+  }
+
+  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DSP = api;
 })(typeof self !== 'undefined' ? self : globalThis);

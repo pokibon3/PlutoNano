@@ -37,6 +37,7 @@
           <span id="gainBadge" class="tag" title="RF ゲイン">G</span>
           <span id="srBadge" class="tag" title="サンプルレート">SR</span>
           <span id="sqlBadge" class="tag flag" title="スケルチ">SQL</span>
+          <span id="txInd" class="tag flag tx" title="送信中">TX</span>
           <span class="spacer"></span>
           <button id="themeBtn" class="tag" title="配色を切り替え">&#9680;</button>
           <span id="clock" class="tag"></span>
@@ -115,6 +116,17 @@
         <span class="hint">WFM のみ</span></div>
       <div class="row"><label class="lbl chk"><input id="squelchOn" type="checkbox"> Squelch</label>
         <input id="squelch" type="range" min="-120" max="0" step="1"><span id="squelchVal" class="num">-60</span></div>
+    </details>
+
+    <details open>
+      <summary>Transmit</summary>
+      <div class="row"><label class="lbl chk"><input id="txEnabled" type="checkbox"> 送信を有効にする</label></div>
+      <div class="row"><span class="lbl">TX level</span>
+        <input id="txAtten" type="range" min="-89.75" max="0" step="0.25"><span id="txAttenVal" class="num">-30 dB</span></div>
+      <div class="row"><span class="lbl">Mic gain</span>
+        <input id="micGain" type="range" min="0" max="40" step="1"><span id="micGainVal" class="num">20 dB</span></div>
+      <div class="row"><button id="btnPtt" class="wide ptt" disabled title="押している間送信（Space キーでも可）">PTT</button></div>
+      <div class="row"><span id="txInfo" class="hint">Space で送信（押している間）。CW は Space が電鍵。日本のアマチュアバンド内（144 / 430 / 1200 / 2400 / 5600）だけ送信できます。</span></div>
     </details>
 
     <details open>
@@ -200,6 +212,8 @@
 
 <script type="text/plain" id="worker-src">/*INLINE:dsp.js*/
 /*INLINE:worker.js*/</script>
+<script type="text/plain" id="txworker-src">/*INLINE:dsp.js*/
+/*INLINE:tx-worker.js*/</script>
 <script type="text/plain" id="worklet-src">/*INLINE:audio-worklet.js*/</script>
 <script>/*INLINE:pluto.js*/</script>
 <script>/*INLINE:app.js*/</script>
