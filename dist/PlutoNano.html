@@ -249,7 +249,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.3</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.4</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -1946,7 +1946,6 @@ registerProcessor('pluto-mic', PlutoMic);
 
   const CMD_RESET_PIPES = 0;
   const CMD_OPEN_PIPE = 1;
-  const CMD_CLOSE_PIPE = 2;
 
   const LINE_LEN = 1024;
   const enc = new TextEncoder();
@@ -2137,9 +2136,14 @@ registerProcessor('pluto-mic', PlutoMic);
       }
       if (this.pipes.length < 2) throw new Error('need two IIO pipes');
 
+      // Open every pipe once, up front. Resetting endpoints (clearHalt) while
+      // another pipe streams makes Chrome on macOS fail that stream's
+      // transfers, so streams start and stop with IIOD OPEN / CLOSE only.
       await this.control(CMD_RESET_PIPES, 0);
-      await this.control(CMD_OPEN_PIPE, 0);
-      await this.pipes[0].clearHalt();
+      for (const p of this.pipes.slice(0, 3)) {
+        await this.control(CMD_OPEN_PIPE, p.id);
+        await p.clearHalt();
+      }
 
       const ctl = this.pipes[0];
       const xml = await ctl.queue.run(async () => {
@@ -2263,8 +2267,6 @@ registerProcessor('pluto-mic', PlutoMic);
       for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
 
       const p = this.pipes[1];
-      await this.control(CMD_OPEN_PIPE, p.id);
-      await p.clearHalt();
       await p.queue.run(async () => {
         const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
         if (r < 0) throw new Error(`OPEN failed: ${r}`);
@@ -2298,11 +2300,7 @@ registerProcessor('pluto-mic', PlutoMic);
       if (!this.rx) return;
       const p = this.pipes[1];
       this.rx = null;
-      try {
-        await p.queue.run(() => p.exec(`CLOSE ${this.rxDev.id}\r\n`));
-      } finally {
-        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
-      }
+      await p.queue.run(() => p.exec(`CLOSE ${this.rxDev.id}\r\n`));
     }
 
     // ---- TX streaming on pipe 2 ----
@@ -2321,8 +2319,6 @@ registerProcessor('pluto-mic', PlutoMic);
       for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
 
       const p = this.pipes[2];
-      await this.control(CMD_OPEN_PIPE, p.id);
-      await p.clearHalt();
       await p.queue.run(async () => {
         const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
         if (r < 0) throw new Error(`TX OPEN failed: ${r}`);
@@ -2354,11 +2350,7 @@ registerProcessor('pluto-mic', PlutoMic);
       if (!this.tx) return;
       const p = this.pipes[2];
       this.tx = null;
-      try {
-        await p.queue.run(() => p.exec(`CLOSE ${this.txDev.id}\r\n`));
-      } finally {
-        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
-      }
+      await p.queue.run(() => p.exec(`CLOSE ${this.txDev.id}\r\n`));
     }
 
     async close() {
@@ -2668,7 +2660,9 @@ registerProcessor('pluto-mic', PlutoMic);
     setStatus();
   }
 
+  let lostReason = '';
   function onDeviceLost(msg) {
+    lostReason = msg || '';
     streamToken++;
     tx.want = tx.keyDown = false;
     if (tx.on) { tx.on = false; tx.token++; clearTimeout(tx.tot); sidetone(false); }
@@ -3408,7 +3402,7 @@ registerProcessor('pluto-mic', PlutoMic);
     const p = pluto;
     const step = async (name, fn) => {
       try { await fn(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
-      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}）`);
+      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}${lostReason ? ' / ' + lostReason : ''}）`);
     };
     await step('TX LO', () => p.setTxFrequency(S.vfo));
     await step('TX level', () => p.setTxAttenuation(S.txAtten));

@@ -14,7 +14,6 @@
 
   const CMD_RESET_PIPES = 0;
   const CMD_OPEN_PIPE = 1;
-  const CMD_CLOSE_PIPE = 2;
 
   const LINE_LEN = 1024;
   const enc = new TextEncoder();
@@ -205,9 +204,14 @@
       }
       if (this.pipes.length < 2) throw new Error('need two IIO pipes');
 
+      // Open every pipe once, up front. Resetting endpoints (clearHalt) while
+      // another pipe streams makes Chrome on macOS fail that stream's
+      // transfers, so streams start and stop with IIOD OPEN / CLOSE only.
       await this.control(CMD_RESET_PIPES, 0);
-      await this.control(CMD_OPEN_PIPE, 0);
-      await this.pipes[0].clearHalt();
+      for (const p of this.pipes.slice(0, 3)) {
+        await this.control(CMD_OPEN_PIPE, p.id);
+        await p.clearHalt();
+      }
 
       const ctl = this.pipes[0];
       const xml = await ctl.queue.run(async () => {
@@ -331,8 +335,6 @@
       for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
 
       const p = this.pipes[1];
-      await this.control(CMD_OPEN_PIPE, p.id);
-      await p.clearHalt();
       await p.queue.run(async () => {
         const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
         if (r < 0) throw new Error(`OPEN failed: ${r}`);
@@ -366,11 +368,7 @@
       if (!this.rx) return;
       const p = this.pipes[1];
       this.rx = null;
-      try {
-        await p.queue.run(() => p.exec(`CLOSE ${this.rxDev.id}\r\n`));
-      } finally {
-        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
-      }
+      await p.queue.run(() => p.exec(`CLOSE ${this.rxDev.id}\r\n`));
     }
 
     // ---- TX streaming on pipe 2 ----
@@ -389,8 +387,6 @@
       for (let i = words - 1; i >= 0; i--) maskHex += (mask[i] >>> 0).toString(16).padStart(8, '0');
 
       const p = this.pipes[2];
-      await this.control(CMD_OPEN_PIPE, p.id);
-      await p.clearHalt();
       await p.queue.run(async () => {
         const r = await p.exec(`OPEN ${dev.id} ${samples} ${maskHex}\r\n`);
         if (r < 0) throw new Error(`TX OPEN failed: ${r}`);
@@ -422,11 +418,7 @@
       if (!this.tx) return;
       const p = this.pipes[2];
       this.tx = null;
-      try {
-        await p.queue.run(() => p.exec(`CLOSE ${this.txDev.id}\r\n`));
-      } finally {
-        await this.control(CMD_CLOSE_PIPE, p.id).catch(() => {});
-      }
+      await p.queue.run(() => p.exec(`CLOSE ${this.txDev.id}\r\n`));
     }
 
     async close() {

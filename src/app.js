@@ -288,7 +288,9 @@
     setStatus();
   }
 
+  let lostReason = '';
   function onDeviceLost(msg) {
+    lostReason = msg || '';
     streamToken++;
     tx.want = tx.keyDown = false;
     if (tx.on) { tx.on = false; tx.token++; clearTimeout(tx.tot); sidetone(false); }
@@ -1028,7 +1030,7 @@
     const p = pluto;
     const step = async (name, fn) => {
       try { await fn(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
-      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}）`);
+      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}${lostReason ? ' / ' + lostReason : ''}）`);
     };
     await step('TX LO', () => p.setTxFrequency(S.vfo));
     await step('TX level', () => p.setTxAttenuation(S.txAtten));
