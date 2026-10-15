@@ -311,11 +311,17 @@
 
   function rfBandwidth() { return S.rfBw || clamp(Math.round(S.sampleRate), 200e3, 56e6); }
 
+  // Writing the sample rate, RF bandwidth or crystal correction makes the
+  // AD9361 recalibrate, which briefly drives the transmitter at the TX LO.
+  // Only write what actually changes.
   async function applySource() {
     if (!pluto) return;
     await applyPpm();
-    await pluto.setSampleRate(S.sampleRate);
-    await pluto.setBandwidth(rfBandwidth());
+    const near = (a, b) => Math.abs(a - b) <= 2;
+    if (!near(await pluto.getSampleRate().catch(() => 0), S.sampleRate)) await pluto.setSampleRate(S.sampleRate);
+    // The driver rounds the RF bandwidth, so compare loosely.
+    const bw = rfBandwidth();
+    if (Math.abs(await pluto.getBandwidth().catch(() => 0) - bw) > bw * 0.01) await pluto.setBandwidth(bw);
     await pluto.setGainMode(S.gainMode);
     if (S.gainMode === 'manual') await pluto.setGain(S.gain);
     await pluto.setFrequency(S.lo);
@@ -328,7 +334,9 @@
   async function applyPpm() {
     if (!pluto) return;
     try {
-      await pluto.setXoCorrection(XO_NOMINAL * (1 + S.ppm * 1e-6));
+      const xo = Math.round(XO_NOMINAL * (1 + S.ppm * 1e-6));
+      if (Math.abs(await pluto.getXoCorrection().catch(() => 0) - xo) <= 1) return;
+      await pluto.setXoCorrection(xo);
     } catch (e) {
       toast('周波数補正を設定できません: ' + e.message);
     }
