@@ -1,7 +1,7 @@
 // Exercises the TX path of src/pluto.js on real hardware at the minimum
 // level (-89.75 dB attenuation): streams a tone 10 kHz above the TX LO
 // while receiving at the same frequency, and reports what RX sees.
-// Usage: node tools/test-tx.mjs [MHz]   (default 433.5, inside the 430 band)
+// Usage: node tools/test-tx.mjs [MHz] [atten dB] [seconds]   (default 433.5 MHz, -89.75 dB, 1.6 s)
 import { createRequire } from 'node:module';
 import { WebUSB } from 'usb';
 
@@ -10,6 +10,7 @@ const Pluto = require('../src/pluto.js');
 const DSP = require('../src/dsp.js');
 
 const f = (+process.argv[2] || 433.5) * 1e6;
+const atten = Math.max(-89.75, Math.min(-20, +process.argv[3] || -89.75)); // never above -20 dB here
 const fs = 2.4e6, N = 32768, tone = 10e3;
 const usb = new WebUSB({ allowAllDevices: true });
 const pluto = await Pluto.getPaired(usb);
@@ -50,17 +51,20 @@ const fill = () => {
   }
   ph %= 2 * Math.PI;
 };
-await pluto.setTxAttenuation(Pluto.TX_ATTEN_MIN);
+await pluto.setTxAttenuation(atten);
+console.log('TX atten', await pluto.phyRead(Pluto.TX, 'hardwaregain'), 'TX LO', await pluto.phyRead(Pluto.TX_LO, 'frequency'),
+  'port', await pluto.phyRead(Pluto.TX, 'rf_port_select'), 'ensm', await pluto.phyRead(null, 'ensm_mode'));
 await pluto.setKernelBuffers(4, pluto.txDev);
 await pluto.startTx(N);
 const t0 = performance.now();
 let sent = 0;
 const writer = (async () => {
-  for (let i = 0; i < 120; i++) { fill(); sent += (await pluto.writeTx(block)) / 4; }
+  const blocks = Math.round((+process.argv[4] || 1.6) * fs / N);
+  for (let i = 0; i < blocks; i++) { fill(); sent += (await pluto.writeTx(block)) / 4; }
 })();
 await new Promise((r) => setTimeout(r, 500));
 await pluto.readRx();
-await peak('TX -89.75');
+await peak(`TX ${atten}`);
 await writer;
 const dt = (performance.now() - t0) / 1000;
 console.log(`wrote ${sent} samples in ${dt.toFixed(2)}s = ${(sent / dt / 1e6).toFixed(2)} MSPS`);
