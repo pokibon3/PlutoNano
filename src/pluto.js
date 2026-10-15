@@ -306,20 +306,14 @@
       const v = Math.max(Pluto.TX_ATTEN_MIN, Math.min(0, Math.round(db * 4) / 4));
       return this.phyWrite(Pluto.TX, 'hardwaregain', v.toFixed(2));
     }
-    setTxLoPower(on) { return this.phyWrite(Pluto.TX_LO, 'powerdown', on ? 0 : 1); }
-    // The DDS tone generator drives the DAC whenever no TX buffer is open.
-    async disableDds() {
-      for (const ch of this.txDev.channels) {
-        if (ch.type !== 'output' || !/^altvoltage/.test(ch.id)) continue;
-        await this.writeAttr(this.txDev, { id: ch.id, output: true }, 'raw', 0).catch(() => {});
-      }
-    }
-    // Quiet state between transmissions: DDS off, TX LO off, minimum level.
+    // Quiet state between transmissions: minimum level only. The DDS tone
+    // generator (on at boot) keeps driving the DAC, about -90 dBm out.
+    // Neither the DDS nor the TX LO is switched off: either leaves the
+    // AD9361 driver in a state where the next sample-rate change or TX
+    // start hangs the device.
     async txIdle() {
       if (!this.canTx) return;
-      await this.disableDds();
       await this.setTxAttenuation(Pluto.TX_ATTEN_MIN);
-      await this.setTxLoPower(false);
     }
 
     // ---- RX streaming on pipe 1 ----

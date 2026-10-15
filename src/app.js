@@ -19,7 +19,10 @@
   // Must match dsp.js: SSB passband low cut and the CW tone.
   const SSB_LOWCUT = 100, CW_PITCH = 700;
   const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
-  const SAMPLE_RATES = [1.024e6, 1.536e6, 2.048e6, 2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6];
+  // Below ~2.083 MSPS the AD9361 needs a FIR filter loaded; without one the
+  // driver rejects the rate and the next rate change hangs the device.
+  const SAMPLE_RATES = [2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6];
+  const MIN_RATE = 2.4e6;
   const RF_BWS = [0, 0.2e6, 0.5e6, 1e6, 2e6, 4e6, 6e6, 10e6, 20e6, 56e6];
 
   // Band buttons: default frequency, mode and the range used for the
@@ -59,6 +62,7 @@
       m.bandwidth = m.filters[m.fil];
     }
     if (!MODE_DEFAULTS[s.mode]) s.mode = 'WFM';
+    if (!(s.sampleRate >= MIN_RATE)) s.sampleRate = MIN_RATE;
     return s;
   })();
   let saveTimer = 0;
@@ -1020,19 +1024,16 @@
       type: 'config',
       cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate },
     });
-    // The device can drop off the bus while the TX chain powers up (a weak
-    // USB supply sags); report that instead of failing on a null device.
+    // Report a device lost mid-way instead of failing on a null device.
     const p = pluto;
     const step = async (fn) => {
       await fn();
-      if (pluto !== p) throw new Error('送信開始中に Pluto が切断されました。USB の電源不足の可能性があります（直結するか、PWR 端子に電源を入れてください）');
+      if (pluto !== p) throw new Error('送信開始中に Pluto が切断されました');
     };
-    await step(() => p.disableDds());
     await step(() => p.setTxFrequency(S.vfo));
     await step(() => p.setTxAttenuation(S.txAtten));
     await step(() => p.setKernelBuffers(TX_KERNEL_BUFFERS, p.txDev));
     await step(() => p.startTx(m * L));
-    await step(() => p.setTxLoPower(true));
     const token = ++tx.token;
     tx.on = true;
     tx.mode = S.mode; tx.bw = mode().bandwidth;

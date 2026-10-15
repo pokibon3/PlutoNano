@@ -53,7 +53,6 @@ const fill = () => {
 await pluto.setTxAttenuation(Pluto.TX_ATTEN_MIN);
 await pluto.setKernelBuffers(4, pluto.txDev);
 await pluto.startTx(N);
-await pluto.setTxLoPower(true);
 const t0 = performance.now();
 let sent = 0;
 const writer = (async () => {
