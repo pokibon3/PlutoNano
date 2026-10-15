@@ -42,6 +42,7 @@
           <span id="clock" class="tag"></span>
         </div>
         <div class="freq-row">
+          <canvas id="afScope" title="音声スペクトラムとフィルタの通過帯域"></canvas>
           <div id="freq" class="freq" title="桁をホイール / クリックで変更、ダブルクリックで直接入力"></div>
           <input id="freqInput" class="freq-input" type="text" spellcheck="false" hidden>
           <span class="freq-unit">MHz</span>
@@ -58,7 +59,7 @@
         <button id="fineBtn" class="key dkey tl" title="同調ステップを 1 段小さく">FINE</button>
         <button id="fastBtn" class="key dkey tr" title="同調ステップを 1 段大きく">FAST</button>
         <button id="autoBtn" class="key dkey bl" title="速く回したときステップを 10 倍にする">AUTO</button>
-        <button id="lockBtn" class="key dkey br" title="メインダイヤルをロック">LOCK</button>
+        <button id="filBtn" class="key dkey br" title="フィルタ（FIL1 / FIL2 / FIL3）を切り替え">FIL</button>
         <canvas id="dial" title="ドラッグで回す（勢いよく回すと惰性で回転）、ホイールでも操作"></canvas>
       </div>
       <div class="knobs">

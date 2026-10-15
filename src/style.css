@@ -168,7 +168,8 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 
 .freq-row { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 0; }
 .freq-row .freq { margin-left: auto; }
-.freq { display: flex; align-items: flex-end; user-select: none; cursor: ns-resize; --dh: 40px; }
+#afScope { flex: none; width: 130px; height: 100%; min-height: 0; display: block; }
+.freq { display: flex; align-items: flex-end; user-select: none; cursor: ns-resize; --dh: 34px; }
 .freq[hidden] { display: none; }
 .freq .d { display: block; height: var(--dh); width: calc(var(--dh) * 0.78); padding: 0 calc(var(--dh) * 0.05); border-radius: 3px; }
 .freq .d.small { height: calc(var(--dh) * 0.68); width: calc(var(--dh) * 0.68 * 0.78); }
@@ -215,7 +216,6 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 /* Main dial with four corner keys around it (FTDX10-style). */
 .dial-wrap { position: relative; width: 220px; height: 132px; }
 #dial { position: absolute; left: 44px; top: 0; width: 132px; height: 132px; display: block; cursor: grab; touch-action: none; }
-#dial.locked { cursor: not-allowed; }
 .dkey { position: absolute; z-index: 1; width: 58px; height: 30px; padding-top: 9px; }
 .dkey.tl { left: 0; top: 0; border-radius: 6px 6px 22px 6px; }
 .dkey.tr { right: 0; top: 0; border-radius: 6px 6px 6px 22px; }
@@ -223,8 +223,8 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 .dkey.br { right: 0; bottom: 0; border-radius: 22px 6px 6px 6px; }
 #dial:active { cursor: grabbing; }
 
-@container (max-width: 1020px) { .freq { --dh: 34px; } .meter-box { width: 180px; } }
+@container (max-width: 1020px) { .freq { --dh: 30px; } .meter-box { width: 180px; } #afScope { width: 100px; } }
 @container (max-width: 900px) { .bands { display: none; } }
-@container (max-width: 700px) { .meter-box { display: none; } .freq { --dh: 30px; } }
+@container (max-width: 700px) { .meter-box { display: none; } #afScope { display: none; } }
 @container (max-width: 470px) { .dial-box { display: none; } .freq-box .info .tag:not(.flag):not(#modeBadge) { display: none; } }
 #toast[hidden] { display: none; }

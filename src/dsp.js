@@ -228,6 +228,8 @@
   // mode: WFM | NFM | AM | USB | LSB | CW
   // CW: the carrier at the VFO is heard as a CW_PITCH tone.
   const CW_PITCH = 700;
+  // SSB passband starts this far from the carrier (low cut).
+  const SSB_LOWCUT = 100;
   class Receiver {
     constructor(opts) {
       this.audioRate = opts.audioRate || 48000;
@@ -264,13 +266,13 @@
       this.stage2 = new CDecim(lowpass(fs1, half, cw ? Math.max(bw * 0.3, 100) : Math.max(half * 0.2, 500), 'hamming'), D2);
 
       // SSB: centre the sideband before filtering, shift back after.
-      this.ssbShift = mode === 'USB' ? bw / 2 : mode === 'LSB' ? -bw / 2 : 0;
+      this.ssbShift = mode === 'USB' ? SSB_LOWCUT + bw / 2 : mode === 'LSB' ? -(SSB_LOWCUT + bw / 2) : 0;
       this.mixer.setFreq(this.offset + this.ssbShift, fs);
       this.bfo = new Mixer();
       this.bfo.setFreq(cw ? -CW_PITCH : -this.ssbShift, this.ifRate);
 
       const audioCut = Math.min(
-        mode === 'WFM' ? 15e3 : mode === 'NFM' ? Math.min(bw / 2, 8e3) : ssb ? bw : cw ? CW_PITCH + bw / 2 + 300 : bw / 2,
+        mode === 'WFM' ? 15e3 : mode === 'NFM' ? Math.min(bw / 2, 8e3) : ssb ? SSB_LOWCUT + bw : cw ? CW_PITCH + bw / 2 + 300 : bw / 2,
         this.audioRate * 0.45);
       const Da = Math.max(1, Math.floor(this.ifRate / this.audioRate));
       // WFM: the filter must also reject the 19 kHz pilot.

@@ -7,14 +7,17 @@
   const MIN_F = 70e6, MAX_F = 6e9;
   const SCAN_FS = 20e6, SCAN_BLOCK = 16384, SCAN_FFT = 1024, SCAN_USE = 0.8;
 
+  // filters: FIL1..FIL3 bandwidths; fil selects one and bandwidth follows it.
   const MODE_DEFAULTS = {
-    WFM: { bandwidth: 200e3, snap: 100000, deemph: 50 },
-    NFM: { bandwidth: 12.5e3, snap: 12500, deemph: 0 },
-    AM: { bandwidth: 10e3, snap: 1000, deemph: 0 },
-    USB: { bandwidth: 2.8e3, snap: 100, deemph: 0 },
-    LSB: { bandwidth: 2.8e3, snap: 100, deemph: 0 },
-    CW: { bandwidth: 500, snap: 100, deemph: 0 },
+    WFM: { filters: [200e3, 150e3, 100e3], fil: 0, snap: 100000, deemph: 50 },
+    NFM: { filters: [15e3, 10e3, 7e3], fil: 0, snap: 12500, deemph: 0 },
+    AM: { filters: [9e3, 6e3, 3e3], fil: 1, snap: 1000, deemph: 0 },
+    USB: { filters: [3e3, 2.4e3, 1.8e3], fil: 1, snap: 100, deemph: 0 },
+    LSB: { filters: [3e3, 2.4e3, 1.8e3], fil: 1, snap: 100, deemph: 0 },
+    CW: { filters: [1.2e3, 500, 250], fil: 1, snap: 100, deemph: 0 },
   };
+  // Must match dsp.js: SSB passband low cut and the CW tone.
+  const SSB_LOWCUT = 100, CW_PITCH = 700;
   const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
   const SAMPLE_RATES = [1.024e6, 1.536e6, 2.048e6, 2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6];
   const RF_BWS = [0, 0.2e6, 0.5e6, 1e6, 2e6, 4e6, 6e6, 10e6, 20e6, 56e6];
@@ -42,7 +45,7 @@
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
-    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, dialLock: false,
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true,
   };
 
   // ---------------- settings ----------------
@@ -50,7 +53,11 @@
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem('plutonano.settings') || '{}'); } catch (e) { /* ignore */ }
     const s = Object.assign({}, DEFAULTS, saved);
-    s.perMode = Object.assign({}, JSON.parse(JSON.stringify(MODE_DEFAULTS)), saved.perMode || {});
+    s.perMode = {};
+    for (const [k, d] of Object.entries(JSON.parse(JSON.stringify(MODE_DEFAULTS)))) {
+      const m = s.perMode[k] = Object.assign(d, (saved.perMode || {})[k]);
+      m.bandwidth = m.filters[m.fil];
+    }
     if (!MODE_DEFAULTS[s.mode]) s.mode = 'WFM';
     return s;
   })();
@@ -142,6 +149,11 @@
     const gain = ctx.createGain();
     gain.gain.value = S.volume ** 2;
     gain.connect(ctx.destination);
+    // Audio scope taps the demodulated audio ahead of the volume control.
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0.6;
+    analyser.connect(gain);
     const ch = new MessageChannel();
     let node = null;
     // file:// pages cannot load worklets from blob: URLs, but data: URLs work.
@@ -154,9 +166,9 @@
     } else {
       node = scriptProcessorPlayer(ctx, ch.port1);
     }
-    node.connect(gain);
+    node.connect(analyser);
     worker.postMessage({ type: 'audioPort', port: ch.port2 }, [ch.port2]);
-    audio = { ctx, node, gain };
+    audio = { ctx, node, gain, analyser };
     // Drop what piled up while suspended so playback starts without lag.
     ctx.addEventListener('statechange', () => { if (ctx.state === 'running') node.port.postMessage({ reset: true }); });
     resumeAudio();
@@ -409,8 +421,8 @@
   // ---------------- tuning ----------------
   function vfoEdges(f = S.vfo) {
     const bw = mode().bandwidth;
-    if (S.mode === 'USB') return [f, f + bw];
-    if (S.mode === 'LSB') return [f - bw, f];
+    if (S.mode === 'USB') return [f + SSB_LOWCUT, f + SSB_LOWCUT + bw];
+    if (S.mode === 'LSB') return [f - SSB_LOWCUT - bw, f - SSB_LOWCUT];
     return [f - bw / 2, f + bw / 2];
   }
 
@@ -795,7 +807,6 @@
     setVfo(snap(S.vfo) + n * step * (S.autoTs && speed > 40 ? 10 : 1));
   }
   function dialRotate(d, speed) {
-    if (S.dialLock) return;
     dial.angle = (dial.angle + d) % (2 * Math.PI);
     dial.acc += d / DETENT;
     const n = Math.trunc(dial.acc);
@@ -808,12 +819,87 @@
       dial.v *= Math.exp(-dt * 1.6);
       if (Math.abs(dial.v) < 0.5) dial.fly = false;
     }
-    const key = [dial.angle.toFixed(4), S.dialLock, dialCanvas.clientWidth, dpr].join();
+    const key = [dial.angle.toFixed(4), dialCanvas.clientWidth, dpr].join();
     if (key !== dial.key) { dial.key = key; drawDial(); }
     for (const k of knobs) {
       const kk = [k.get().toFixed(4), S.panelTheme, k.canvas.clientWidth, dpr].join();
       if (kk !== k.key) { k.key = kk; drawKnob(k); }
     }
+  }
+
+  // ---------------- audio scope ----------------
+  // Spectrum of the demodulated audio in the frequency LCD, with the
+  // filter passband shaded.
+  const scopeCanvas = $('afScope');
+  const scope = { last: 0, key: '', buf: null };
+
+  // Audio passband [lo, hi] in Hz and the span shown for the current mode.
+  function audioPassband() {
+    const bw = mode().bandwidth;
+    switch (S.mode) {
+      case 'USB': case 'LSB': return { lo: SSB_LOWCUT, hi: SSB_LOWCUT + bw, span: Math.max(4000, SSB_LOWCUT + bw + 500) };
+      case 'CW': return { lo: Math.max(0, CW_PITCH - bw / 2), hi: CW_PITCH + bw / 2, span: Math.max(2000, CW_PITCH + bw / 2 + 300) };
+      case 'WFM': return { lo: 0, hi: 15e3, span: 16e3 };
+      case 'NFM': return { lo: 0, hi: Math.min(bw / 2, 8e3), span: Math.min(bw / 2, 8e3) * 1.25 };
+      default: return { lo: 0, hi: bw / 2, span: bw / 2 * 1.25 };
+    }
+  }
+
+  function scopeTick(now) {
+    const live = !!audio && state === 'live';
+    const pb = audioPassband();
+    const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live].join();
+    if (live ? now - scope.last < 33 : key === scope.key) return;
+    scope.last = now;
+    scope.key = key;
+    const [ctx, w, h] = fitCanvas(scopeCanvas);
+    if (!w || !h) return;
+    const c = meter.colors || (meter.colors = panelColors());
+    const axisH = 11, ph = h - axisH;
+    const xOf = (f) => (f / pb.span) * w;
+    // Passband.
+    const xa = xOf(pb.lo), xb = Math.min(w, xOf(pb.hi));
+    ctx.fillStyle = c.ghost;
+    ctx.fillRect(xa, 0, xb - xa, ph);
+    ctx.strokeStyle = c.dim;
+    ctx.lineWidth = 1;
+    for (const x of [xa, xb]) {
+      if (x <= 0.5 || x >= w - 0.5) continue;
+      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, ph); ctx.stroke();
+    }
+    // Frequency ticks.
+    const step = niceStep(pb.span, 4);
+    ctx.font = '600 9px ui-monospace, Menlo, monospace';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = c.dim;
+    ctx.strokeStyle = c.ghost;
+    for (let f = 0; f <= pb.span; f += step) {
+      const x = Math.round(xOf(f)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, ph); ctx.lineTo(x, ph + 3); ctx.stroke();
+      ctx.textAlign = f === 0 ? 'left' : 'center';
+      if (x < w - 10) ctx.fillText(f >= 1000 ? f / 1000 + 'k' : String(f), f === 0 ? 0 : x, ph + 2);
+    }
+    ctx.strokeStyle = c.dim;
+    ctx.beginPath(); ctx.moveTo(0, ph + 0.5); ctx.lineTo(w, ph + 0.5); ctx.stroke();
+    if (!live) return;
+    // Spectrum, -100..-20 dBFS.
+    const an = audio.analyser;
+    if (!scope.buf || scope.buf.length !== an.frequencyBinCount) scope.buf = new Float32Array(an.frequencyBinCount);
+    an.getFloatFrequencyData(scope.buf);
+    const binHz = audio.ctx.sampleRate / an.fftSize;
+    ctx.beginPath();
+    ctx.moveTo(0, ph);
+    for (let x = 0; x <= w; x++) {
+      // Peak of the bins under this pixel.
+      const b0 = Math.floor(x / w * pb.span / binHz), b1 = Math.max(b0 + 1, Math.floor((x + 1) / w * pb.span / binHz));
+      let db = -200;
+      for (let b = b0; b < b1 && b < scope.buf.length; b++) db = Math.max(db, scope.buf[b]);
+      ctx.lineTo(x, ph * (1 - clamp((db + 100) / 80, 0, 1)));
+    }
+    ctx.lineTo(w, ph);
+    ctx.closePath();
+    ctx.fillStyle = c.dim;
+    ctx.fill();
   }
 
   // ---------------- AF / SQL knobs ----------------
@@ -912,19 +998,17 @@
     g.addColorStop(0, '#040405'); g.addColorStop(0.7, '#141417'); g.addColorStop(1, '#2a2a30');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(cx, cy, Rb, 0, 2 * Math.PI); ctx.fill();
-    // Blue LED arcs on the left and right; dimmed while the dial is locked.
+    // Blue LED arcs on the left and right.
     ctx.lineCap = 'round';
     for (const side of [0, Math.PI]) {
-      ctx.strokeStyle = S.dialLock ? '#1a2c48' : '#2f7dff';
-      ctx.shadowColor = '#2f7dff'; ctx.shadowBlur = S.dialLock ? 0 : 9;
+      ctx.strokeStyle = '#2f7dff';
+      ctx.shadowColor = '#2f7dff'; ctx.shadowBlur = 9;
       ctx.lineWidth = 3.5;
       ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.7, side + 0.7); ctx.stroke();
       ctx.shadowBlur = 0;
-      if (!S.dialLock) {
-        ctx.strokeStyle = 'rgba(200,225,255,0.85)';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.62, side + 0.62); ctx.stroke();
-      }
+      ctx.strokeStyle = 'rgba(200,225,255,0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.62, side + 0.62); ctx.stroke();
     }
     ctx.lineCap = 'butt';
     // Drop shadow and rubber skirt.
@@ -1043,11 +1127,10 @@
     $('fineBtn').addEventListener('click', () => stepBy(-1));
     $('fastBtn').addEventListener('click', () => stepBy(1));
     $('autoBtn').addEventListener('click', () => { S.autoTs = !S.autoTs; updatePanel(); save(); });
-    $('lockBtn').addEventListener('click', () => {
-      S.dialLock = !S.dialLock;
-      if (S.dialLock) dial.fly = false;
-      updatePanel();
-      save();
+    $('filBtn').addEventListener('click', () => {
+      const m = mode();
+      m.fil = (m.fil + 1) % m.filters.length;
+      setBandwidth(m.filters[m.fil]);
     });
 
     $('modeBadge').addEventListener('click', () => {
@@ -1083,7 +1166,7 @@
       meter.key = dial.key = '';
     }
     $('modeBadge').textContent = S.mode;
-    $('bwBadge').textContent = 'BW ' + fmtStep(m.bandwidth);
+    $('bwBadge').textContent = `FIL${m.fil + 1} ${fmtStep(m.bandwidth)}`;
     $('tsBadge').textContent = 'TS ' + fmtStep(m.snap);
     $('agcBadge').textContent = GAIN_MODES[S.gainMode] || S.gainMode;
     $('gainBadge').textContent = 'G ' + Math.round(curGain);
@@ -1092,8 +1175,6 @@
     $('fineBtn').disabled = !STEPS.some((x) => x < m.snap);
     $('fastBtn').disabled = !STEPS.some((x) => x > m.snap);
     $('autoBtn').classList.toggle('active', S.autoTs);
-    $('lockBtn').classList.toggle('active', S.dialLock);
-    dialCanvas.classList.toggle('locked', S.dialLock);
   }
 
   // ---------------- colormaps ----------------
@@ -1431,6 +1512,7 @@
     lastFrame = now;
     meterTick(dt, now);
     dialTick(dt);
+    scopeTick(now);
     if (dirty) {
       dirty = false;
       drawSpectrum();
@@ -1524,8 +1606,8 @@
         }
       } else if (drag.kind === 'edge') {
         let bw;
-        if (S.mode === 'USB') bw = f - S.vfo;
-        else if (S.mode === 'LSB') bw = S.vfo - f;
+        if (S.mode === 'USB') bw = f - S.vfo - SSB_LOWCUT;
+        else if (S.mode === 'LSB') bw = S.vfo - f - SSB_LOWCUT;
         else bw = 2 * Math.abs(f - S.vfo);
         const [mn, mx] = BW_LIMITS[S.mode];
         setBandwidth(clamp(Math.round(bw / 100) * 100, mn, mx));
@@ -1561,8 +1643,10 @@
     }, { passive: false });
   }
 
+  // Also stores the width in the selected FIL preset.
   function setBandwidth(bw) {
-    mode().bandwidth = bw;
+    const m = mode();
+    m.bandwidth = m.filters[m.fil] = bw;
     $('bandwidth').value = +(bw / 1e3).toFixed(2);
     updatePanel();
     workerConfig();
