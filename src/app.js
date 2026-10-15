@@ -1042,6 +1042,8 @@
     audio.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.01);
     tx.tot = setTimeout(() => { toast('タイムアウト（3 分）で送信を止めました', 'info'); txKey(false, true); }, TX_TOT);
     updateTx();
+    tx.stats = { blocks: 0, peak: 0, t0: performance.now() };
+    $('txStat').textContent = '開始…';
     tx.loop = (async () => {
       let next = txBlock();
       while (token === tx.token) {
@@ -1050,6 +1052,16 @@
         next = txBlock();
         try {
           await pluto.writeTx(iq);
+          // Status: blocks written, peak level, effective rate.
+          const st = tx.stats;
+          let pk = 0;
+          for (let i = 0; i < iq.length; i += 7) { const v = Math.abs(iq[i]); if (v > pk) pk = v; }
+          st.peak = Math.max(st.peak * 0.9, pk);
+          if (++st.blocks % 10 === 0) {
+            const sec = (performance.now() - st.t0) / 1000;
+            const rate = st.blocks * iq.length / 2 / sec / 1e6;
+            $('txStat').textContent = `${st.blocks} blk · peak ${(st.peak / 327.67).toFixed(0)}% · ${rate.toFixed(2)} MSPS`;
+          }
         } catch (e) {
           if (token === tx.token) { toast('送信エラー: ' + e.message); tx.want = false; txKick(); }
           break;

@@ -249,7 +249,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.4</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.5</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -361,6 +361,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <div class="row"><span class="lbl">Mic gain</span>
         <input id="micGain" type="range" min="0" max="40" step="1"><span id="micGainVal" class="num">20 dB</span></div>
       <div class="row"><button id="btnPtt" class="wide ptt" disabled title="押している間送信（Space キーでも可）">PTT</button></div>
+      <div class="row"><span class="lbl">Status</span><span id="txStat" class="val mono">—</span></div>
       <div class="row"><span id="txInfo" class="hint">Space で送信（押している間）。CW は Space が電鍵。日本のアマチュアバンド内（144 / 430 / 1200 / 2400 / 5600）だけ送信できます。</span></div>
     </details>
 
@@ -3414,6 +3415,8 @@ registerProcessor('pluto-mic', PlutoMic);
     audio.gain.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.01);
     tx.tot = setTimeout(() => { toast('タイムアウト（3 分）で送信を止めました', 'info'); txKey(false, true); }, TX_TOT);
     updateTx();
+    tx.stats = { blocks: 0, peak: 0, t0: performance.now() };
+    $('txStat').textContent = '開始…';
     tx.loop = (async () => {
       let next = txBlock();
       while (token === tx.token) {
@@ -3422,6 +3425,16 @@ registerProcessor('pluto-mic', PlutoMic);
         next = txBlock();
         try {
           await pluto.writeTx(iq);
+          // Status: blocks written, peak level, effective rate.
+          const st = tx.stats;
+          let pk = 0;
+          for (let i = 0; i < iq.length; i += 7) { const v = Math.abs(iq[i]); if (v > pk) pk = v; }
+          st.peak = Math.max(st.peak * 0.9, pk);
+          if (++st.blocks % 10 === 0) {
+            const sec = (performance.now() - st.t0) / 1000;
+            const rate = st.blocks * iq.length / 2 / sec / 1e6;
+            $('txStat').textContent = `${st.blocks} blk · peak ${(st.peak / 327.67).toFixed(0)}% · ${rate.toFixed(2)} MSPS`;
+          }
         } catch (e) {
           if (token === tx.token) { toast('送信エラー: ' + e.message); tx.want = false; txKick(); }
           break;
