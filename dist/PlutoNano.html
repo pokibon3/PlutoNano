@@ -244,7 +244,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.2.1</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.2.2</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -1480,6 +1480,8 @@ registerProcessor('pluto-player', PlutoPlayer);
   const BANDS = [
     { name: 'FM', f: 80.0e6, mode: 'WFM', lo: 76e6, hi: 95e6, title: 'FM 放送 76–95 MHz' },
     { name: 'AIR', f: 118.1e6, mode: 'AM', lo: 118e6, hi: 137e6, title: 'エアバンド 118–137 MHz' },
+    // Below the 70 MHz tuning limit: a placeholder key, disabled.
+    { name: '50', lo: 50e6, hi: 54e6, dummy: true, title: '50 MHz アマチュアバンド 50–54 MHz（70 MHz 未満は受信不可）' },
     // Japanese amateur bands: NFM, 20 kHz channel step.
     { name: '144', f: 145.0e6, mode: 'NFM', snap: 20e3, lo: 144e6, hi: 146e6, title: '144 MHz アマチュアバンド 144–146 MHz' },
     { name: '430', f: 433.0e6, mode: 'NFM', snap: 20e3, lo: 430e6, hi: 440e6, title: '430 MHz アマチュアバンド 430–440 MHz' },
@@ -1877,6 +1879,7 @@ registerProcessor('pluto-player', PlutoPlayer);
       btn.title = b.title;
       btn.dataset.band = b.name;
       btn.className = 'key';
+      btn.disabled = !!b.dummy;
       btn.addEventListener('click', () => selectBand(b));
       el.appendChild(btn);
     }
@@ -2677,15 +2680,15 @@ registerProcessor('pluto-player', PlutoPlayer);
 
     // Grid.
     ctx.font = `${11 * dpr}px ui-monospace, Menlo, monospace`;
-    ctx.strokeStyle = '#26262b';
+    ctx.strokeStyle = '#3a3a42';
     ctx.lineWidth = 1;
     ctx.fillStyle = '#7d7d86';
     ctx.textBaseline = 'middle';
-    const dbStep = niceStep(dbMax - dbMin, plotH / (40 * dpr));
-    for (let d = Math.ceil(dbMin / dbStep) * dbStep; d <= dbMax; d += dbStep) {
+    // Lines every 10 dB, labels every 20 dB.
+    for (let d = Math.ceil(dbMin / 10) * 10; d <= dbMax; d += 10) {
       const y = Math.round(yOf(d)) + 0.5;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-      ctx.fillText(String(Math.round(d)), 4 * dpr, y - 7 * dpr);
+      if (d % 20 === 0) ctx.fillText(String(d), 4 * dpr, y - 7 * dpr);
     }
     const fStep = niceStep(vb - va, W / (110 * dpr));
     ctx.textAlign = 'center';
