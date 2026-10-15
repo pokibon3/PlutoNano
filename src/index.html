@@ -45,17 +45,22 @@
           <div id="freq" class="freq" title="桁をホイール / クリックで変更、ダブルクリックで直接入力"></div>
           <input id="freqInput" class="freq-input" type="text" spellcheck="false" hidden>
           <span class="freq-unit">MHz</span>
-          <div class="modes" id="modes">
-            <button data-mode="NFM">NFM</button><button data-mode="WFM">WFM</button><button data-mode="AM">AM</button>
-            <button data-mode="USB">USB</button><button data-mode="LSB">LSB</button><button data-mode="CW">CW</button>
-          </div>
         </div>
       </div>
-      <div id="bands" class="bands"></div>
+      <div id="modes" class="modes">
+        <button class="key" data-mode="NFM">NFM</button><button class="key" data-mode="WFM">WFM</button><button class="key" data-mode="AM">AM</button>
+        <button class="key" data-mode="USB">USB</button><button class="key" data-mode="LSB">LSB</button><button class="key" data-mode="CW">CW</button>
+      </div>
     </div>
-    <div id="steps" class="steps" title="同調ステップ"></div>
+    <div id="bands" class="bands" title="バンド"></div>
     <div class="dial-box">
-      <canvas id="dial" title="ドラッグで回す（勢いよく回すと惰性で回転）、ホイールでも操作"></canvas>
+      <div class="dial-wrap">
+        <button id="fineBtn" class="key dkey tl" title="同調ステップを 1 段小さく">FINE</button>
+        <button id="fastBtn" class="key dkey tr" title="同調ステップを 1 段大きく">FAST</button>
+        <button id="autoBtn" class="key dkey bl" title="速く回したときステップを 10 倍にする">AUTO</button>
+        <button id="lockBtn" class="key dkey br" title="メインダイヤルをロック">LOCK</button>
+        <canvas id="dial" title="ドラッグで回す（勢いよく回すと惰性で回転）、ホイールでも操作"></canvas>
+      </div>
       <div class="knobs">
         <div class="knob"><canvas id="afKnob" title="音量（上下ドラッグ / ホイール）"></canvas><span id="afLbl">AF</span></div>
         <div class="knob"><canvas id="sqlKnob" title="スケルチ（上下ドラッグ / ホイール、左いっぱいで OFF）"></canvas><span id="sqlLbl">SQL</span></div>

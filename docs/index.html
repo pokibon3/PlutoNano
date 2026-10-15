@@ -139,7 +139,7 @@ details[open] > summary::before { content: "▾ "; }
 /* ---------------- front panel (transceiver style) ---------------- */
 #panel {
   grid-area: panel; container-type: inline-size; display: flex; gap: 12px; height: 152px; padding: 10px 12px;
-  background: linear-gradient(#232328, #141417 60%, #101012); border-bottom: 1px solid #000;
+  background: linear-gradient(#36363d, #2a2a30 60%, #24242a); border-bottom: 1px solid #000;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --lcd: #62e2ff; --lcd-dim: rgba(98, 226, 255, 0.55); --lcd-ghost: rgba(98, 226, 255, 0.07);
   --lcd-bg: #03111a; --lcd-tint: #0a2a3a; --over: #ff5b4a; --needle: #ffffff;
@@ -175,14 +175,6 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 
 .freq-row { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 0; }
 .freq-row .freq { margin-left: auto; }
-/* Touch-panel style mode keys to the right of the frequency. */
-.modes { display: grid; grid-template-columns: repeat(3, 42px); gap: 4px; margin-left: 10px; flex: none; }
-.modes button {
-  padding: 3px 0; font: 700 11px/1.2 ui-monospace, Menlo, monospace; color: var(--lcd); background: transparent;
-  border: 1px solid var(--lcd-dim); border-radius: 3px;
-}
-.modes button:hover:not(:disabled) { border-color: var(--lcd); background: var(--lcd-ghost); }
-.modes button.active { color: var(--lcd-bg); background: var(--lcd); border-color: var(--lcd); box-shadow: 0 0 6px var(--lcd-dim); }
 .freq { display: flex; align-items: flex-end; user-select: none; cursor: ns-resize; --dh: 40px; }
 .freq[hidden] { display: none; }
 .freq .d { display: block; height: var(--dh); width: calc(var(--dh) * 0.78); padding: 0 calc(var(--dh) * 0.05); border-radius: 3px; }
@@ -216,23 +208,30 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 .key.active::before { background: var(--lcd); box-shadow: 0 0 6px var(--lcd); }
 .key:active { transform: translateY(1px); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); }
 .key:hover:not(:disabled) { border-color: #050506; color: #fff; }
-.bands { display: flex; gap: 4px; flex: none; }
-.bands .key { flex: 1; min-width: 0; height: 26px; }
+.modes { display: flex; gap: 4px; flex: none; }
+.modes .key { flex: 1; min-width: 0; height: 26px; }
 
-.steps { flex: none; display: grid; grid-template-columns: repeat(2, 50px); grid-auto-rows: 1fr; gap: 4px; }
-.steps .key { padding-top: 6px; }
-.steps .key.mod { color: #a8a8b0; }
+.bands { flex: none; display: grid; grid-template-columns: repeat(2, 50px); grid-template-rows: repeat(4, 1fr); gap: 4px; }
+.bands .key { padding-top: 6px; }
 
 .dial-box { flex: none; display: flex; align-items: center; gap: 8px; }
 .knobs { display: flex; flex-direction: column; gap: 4px; }
 .knob { display: flex; flex-direction: column; align-items: center; }
 .knob canvas { width: 50px; height: 50px; display: block; cursor: ns-resize; touch-action: none; }
 .knob span { font: 600 10px/1.2 ui-monospace, Menlo, monospace; color: #a8a8b0; min-width: 40px; text-align: center; }
-#dial { width: 132px; height: 132px; display: block; cursor: grab; touch-action: none; }
+/* Main dial with four corner keys around it (FTDX10-style). */
+.dial-wrap { position: relative; width: 220px; height: 132px; }
+#dial { position: absolute; left: 44px; top: 0; width: 132px; height: 132px; display: block; cursor: grab; touch-action: none; }
+#dial.locked { cursor: not-allowed; }
+.dkey { position: absolute; z-index: 1; width: 58px; height: 30px; padding-top: 9px; }
+.dkey.tl { left: 0; top: 0; border-radius: 6px 6px 22px 6px; }
+.dkey.tr { right: 0; top: 0; border-radius: 6px 6px 6px 22px; }
+.dkey.bl { left: 0; bottom: 0; border-radius: 6px 22px 6px 6px; }
+.dkey.br { right: 0; bottom: 0; border-radius: 22px 6px 6px 6px; }
 #dial:active { cursor: grabbing; }
 
 @container (max-width: 1020px) { .freq { --dh: 34px; } .meter-box { width: 180px; } }
-@container (max-width: 900px) { .steps { display: none; } }
+@container (max-width: 900px) { .bands { display: none; } }
 @container (max-width: 700px) { .meter-box { display: none; } .freq { --dh: 30px; } }
 @container (max-width: 470px) { .dial-box { display: none; } .freq-box .info .tag:not(.flag):not(#modeBadge) { display: none; } }
 #toast[hidden] { display: none; }
@@ -247,7 +246,7 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.1.0</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.2.0</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -278,17 +277,22 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
           <div id="freq" class="freq" title="桁をホイール / クリックで変更、ダブルクリックで直接入力"></div>
           <input id="freqInput" class="freq-input" type="text" spellcheck="false" hidden>
           <span class="freq-unit">MHz</span>
-          <div class="modes" id="modes">
-            <button data-mode="NFM">NFM</button><button data-mode="WFM">WFM</button><button data-mode="AM">AM</button>
-            <button data-mode="USB">USB</button><button data-mode="LSB">LSB</button><button data-mode="CW">CW</button>
-          </div>
         </div>
       </div>
-      <div id="bands" class="bands"></div>
+      <div id="modes" class="modes">
+        <button class="key" data-mode="NFM">NFM</button><button class="key" data-mode="WFM">WFM</button><button class="key" data-mode="AM">AM</button>
+        <button class="key" data-mode="USB">USB</button><button class="key" data-mode="LSB">LSB</button><button class="key" data-mode="CW">CW</button>
+      </div>
     </div>
-    <div id="steps" class="steps" title="同調ステップ"></div>
+    <div id="bands" class="bands" title="バンド"></div>
     <div class="dial-box">
-      <canvas id="dial" title="ドラッグで回す（勢いよく回すと惰性で回転）、ホイールでも操作"></canvas>
+      <div class="dial-wrap">
+        <button id="fineBtn" class="key dkey tl" title="同調ステップを 1 段小さく">FINE</button>
+        <button id="fastBtn" class="key dkey tr" title="同調ステップを 1 段大きく">FAST</button>
+        <button id="autoBtn" class="key dkey bl" title="速く回したときステップを 10 倍にする">AUTO</button>
+        <button id="lockBtn" class="key dkey br" title="メインダイヤルをロック">LOCK</button>
+        <canvas id="dial" title="ドラッグで回す（勢いよく回すと惰性で回転）、ホイールでも操作"></canvas>
+      </div>
       <div class="knobs">
         <div class="knob"><canvas id="afKnob" title="音量（上下ドラッグ / ホイール）"></canvas><span id="afLbl">AF</span></div>
         <div class="knob"><canvas id="sqlKnob" title="スケルチ（上下ドラッグ / ホイール、左いっぱいで OFF）"></canvas><span id="sqlLbl">SQL</span></div>
@@ -1484,18 +1488,6 @@ registerProcessor('pluto-player', PlutoPlayer);
     { name: '1200', f: 1295.0e6, mode: 'NFM', snap: 20e3, lo: 1260e6, hi: 1300e6, title: '1200 MHz アマチュアバンド 1260–1300 MHz' },
     { name: '2400', f: 2427.0e6, mode: 'NFM', snap: 20e3, lo: 2400e6, hi: 2450e6, title: '2400 MHz アマチュアバンド 2400–2450 MHz' },
     { name: '5600', f: 5760.0e6, mode: 'NFM', snap: 20e3, lo: 5650e6, hi: 5850e6, title: '5600 MHz アマチュアバンド 5650–5850 MHz' },
-    // Wi-Fi bands: there is nothing to listen to, so these start a
-    // wideband scan of the band and label the channels (Japan).
-    { name: '2.4G', f: 2437e6, mode: 'NFM', lo: 2400e6, hi: 2500e6, wifi: true, title: '2.4 GHz Wi-Fi（ch1–14）をスキャン' },
-    { name: '5G', f: 5500e6, mode: 'NFM', lo: 5150e6, hi: 5730e6, wifi: true, title: '5 GHz Wi-Fi（W52 / W53 / W56）をスキャン' },
-  ];
-
-  // Japanese Wi-Fi channels: [number, centre Hz, width Hz].
-  const WIFI_CHANNELS = [
-    ...Array.from({ length: 13 }, (_, i) => [i + 1, (2412 + 5 * i) * 1e6, 20e6]),
-    [14, 2484e6, 22e6],
-    ...[36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]
-      .map((n) => [n, (5000 + 5 * n) * 1e6, 20e6]),
   ];
 
   const DEFAULTS = {
@@ -1506,7 +1498,7 @@ registerProcessor('pluto-player', PlutoPlayer);
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
-    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, fine: false, autoTs: true,
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, dialLock: false,
   };
 
   // ---------------- settings ----------------
@@ -1892,12 +1884,11 @@ registerProcessor('pluto-player', PlutoPlayer);
     }
   }
 
-  // The band containing the VFO (or the scan range while scanning),
-  // preferring the one last selected.
+  // The band containing the VFO (none while scanning), preferring the one
+  // last selected.
   function activeBand() {
     const sweeping = state === 'sweep' && !!sweep;
-    const f = sweeping ? (sweep.start + sweep.stop) / 2 : S.vfo;
-    const ok = (b) => b && f >= b.lo && f <= b.hi && !!b.wifi === sweeping;
+    const ok = (b) => b && !sweeping && S.vfo >= b.lo && S.vfo <= b.hi;
     const cur = BANDS.find((b) => b.name === S.band);
     return ok(cur) ? cur : BANDS.find(ok) || null;
   }
@@ -1914,19 +1905,12 @@ registerProcessor('pluto-player', PlutoPlayer);
     S.band = b.name;
     S.scanStart = b.lo / 1e6;
     S.scanStop = b.hi / 1e6;
-    if (b.wifi) {
-      $('scanPreset').value = '';
-      syncControls();
-      save();
-      if (pluto) (state === 'sweep' ? stopSweep() : Promise.resolve()).then(startSweep);
-      return;
-    }
     const mem = S.bandMem[b.name] || { f: b.f, mode: b.mode };
     S.mode = mem.mode;
     if (b.snap) mode().snap = b.snap;
     syncControls();
     if (state === 'sweep') {
-      // Leaving a Wi-Fi scan: go back to live reception in the new band.
+      // Leaving a wideband scan: go back to live reception in the new band.
       tuneFromScan(mem.f);
       return;
     }
@@ -2263,10 +2247,10 @@ registerProcessor('pluto-player', PlutoPlayer);
   function tuneBy(n, speed) {
     if (state === 'sweep' || !n) return;
     const step = mode().snap || 1000;
-    if (S.fine) setVfo(S.vfo + n * Math.max(1, step / 10));
-    else setVfo(snap(S.vfo) + n * step * (S.autoTs && speed > 40 ? 10 : 1));
+    setVfo(snap(S.vfo) + n * step * (S.autoTs && speed > 40 ? 10 : 1));
   }
   function dialRotate(d, speed) {
+    if (S.dialLock) return;
     dial.angle = (dial.angle + d) % (2 * Math.PI);
     dial.acc += d / DETENT;
     const n = Math.trunc(dial.acc);
@@ -2279,7 +2263,7 @@ registerProcessor('pluto-player', PlutoPlayer);
       dial.v *= Math.exp(-dt * 1.6);
       if (Math.abs(dial.v) < 0.5) dial.fly = false;
     }
-    const key = [dial.angle.toFixed(4), dialCanvas.clientWidth, dpr].join();
+    const key = [dial.angle.toFixed(4), S.dialLock, dialCanvas.clientWidth, dpr].join();
     if (key !== dial.key) { dial.key = key; drawDial(); }
     for (const k of knobs) {
       const kk = [k.get().toFixed(4), S.panelTheme, k.canvas.clientWidth, dpr].join();
@@ -2377,44 +2361,71 @@ registerProcessor('pluto-player', PlutoPlayer);
   function drawDial() {
     const [ctx, w, h] = fitCanvas(dialCanvas);
     if (!w || !h) return;
-    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 4, a = dial.angle;
-    // Drop shadow and skirt.
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath(); ctx.arc(cx + 1, cy + 3, R + 1, 0, 2 * Math.PI); ctx.fill();
-    let g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R);
-    g.addColorStop(0, '#2c2c32'); g.addColorStop(1, '#0d0d0f');
+    const cx = w / 2, cy = h / 2, Rb = Math.min(w, h) / 2 - 1, R = Rb - 9, a = dial.angle;
+    // Recessed bezel around the knob.
+    let g = ctx.createRadialGradient(cx, cy, R, cx, cy, Rb);
+    g.addColorStop(0, '#040405'); g.addColorStop(0.7, '#141417'); g.addColorStop(1, '#2a2a30');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, Rb, 0, 2 * Math.PI); ctx.fill();
+    // Blue LED arcs on the left and right; dimmed while the dial is locked.
+    ctx.lineCap = 'round';
+    for (const side of [0, Math.PI]) {
+      ctx.strokeStyle = S.dialLock ? '#1a2c48' : '#2f7dff';
+      ctx.shadowColor = '#2f7dff'; ctx.shadowBlur = S.dialLock ? 0 : 9;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.7, side + 0.7); ctx.stroke();
+      ctx.shadowBlur = 0;
+      if (!S.dialLock) {
+        ctx.strokeStyle = 'rgba(200,225,255,0.85)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(cx, cy, R + 4.5, side - 0.62, side + 0.62); ctx.stroke();
+      }
+    }
+    ctx.lineCap = 'butt';
+    // Drop shadow and rubber skirt.
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.beginPath(); ctx.arc(cx + 1, cy + 2, R, 0, 2 * Math.PI); ctx.fill();
+    g = ctx.createRadialGradient(cx, cy, R * 0.7, cx, cy, R);
+    g.addColorStop(0, '#26262b'); g.addColorStop(1, '#0b0b0d');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
-    // Knurled ridges turn with the knob; those facing the top-left light are brighter.
-    ctx.lineWidth = 1.4;
-    for (let i = 0; i < 80; i++) {
-      const t = a + i * 2 * Math.PI / 80, c = Math.cos(t), s = Math.sin(t);
-      const lit = 0.07 + 0.16 * Math.max(0, -(c + s) / Math.SQRT2);
+    // Fine knurling turns with the knob; ridges facing the top-left light are brighter.
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 120; i++) {
+      const t = a + i * 2 * Math.PI / 120, c = Math.cos(t), s = Math.sin(t);
+      const lit = 0.05 + 0.14 * Math.max(0, -(c + s) / Math.SQRT2);
       ctx.strokeStyle = `rgba(255,255,255,${lit.toFixed(3)})`;
-      ctx.beginPath(); ctx.moveTo(cx + c * R * 0.84, cy + s * R * 0.84); ctx.lineTo(cx + c * R * 0.97, cy + s * R * 0.97); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + c * R * 0.82, cy + s * R * 0.82); ctx.lineTo(cx + c * R * 0.98, cy + s * R * 0.98); ctx.stroke();
     }
-    // Brushed-metal face; the reflections stay put while the knob turns.
-    const Rf = R * 0.8;
+    // Polished chamfer between skirt and face.
+    const Rf = R * 0.76;
+    g = ctx.createLinearGradient(cx - Rf, cy - Rf, cx + Rf, cy + Rf);
+    g.addColorStop(0, '#8a8a94'); g.addColorStop(0.5, '#1a1a1e'); g.addColorStop(1, '#5a5a62');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.8, 0, 2 * Math.PI); ctx.fill();
+    // Spun-metal face: conic sheen fixed to the light, fine concentric grooves.
     g = ctx.createConicGradient(-Math.PI / 4, cx, cy);
-    const metal = ['#62626b', '#2a2a2f', '#55555d', '#232327', '#62626b', '#2a2a2f', '#55555d', '#232327', '#62626b'];
+    const metal = ['#9a9aa4', '#26262b', '#6e6e78', '#1c1c20', '#9a9aa4', '#26262b', '#6e6e78', '#1c1c20', '#9a9aa4'];
     metal.forEach((col, i) => g.addColorStop(i / (metal.length - 1), col));
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(cx, cy, Rf, 0, 2 * Math.PI); ctx.fill();
-    g = ctx.createLinearGradient(cx - Rf, cy - Rf, cx + Rf, cy + Rf);
-    g.addColorStop(0, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0.6)');
-    ctx.strokeStyle = g;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(cx, cy, Rf, 0, 2 * Math.PI); ctx.stroke();
-    // Finger dimple: concave, so dark at the top-left and lit at the bottom-right.
-    const dr = R * 0.16, dx = cx + Math.cos(a) * R * 0.5, dy = cy + Math.sin(a) * R * 0.5;
-    g = ctx.createRadialGradient(dx - dr * 0.35, dy - dr * 0.35, dr * 0.1, dx, dy, dr);
-    g.addColorStop(0, '#0c0c0e'); g.addColorStop(0.8, '#2a2a30'); g.addColorStop(1, '#4a4a52');
+    ctx.lineWidth = 0.6;
+    for (let r = 2, i = 0; r < Rf; r += 1.6, i++) {
+      ctx.strokeStyle = i % 2 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.12)';
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    }
+    // Glossy black finger dimple: concave, so its lower-right wall catches the light.
+    const dr = R * 0.2, dx = cx + Math.cos(a) * R * 0.48, dy = cy + Math.sin(a) * R * 0.48;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.arc(dx, dy, dr + 1.5, 0, 2 * Math.PI); ctx.fill();
+    g = ctx.createRadialGradient(dx - dr * 0.3, dy - dr * 0.3, dr * 0.1, dx, dy, dr);
+    g.addColorStop(0, '#050506'); g.addColorStop(0.75, '#1c1c21'); g.addColorStop(1, '#5c5c66');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(dx, dy, dr, 0, 2 * Math.PI); ctx.fill();
-    // Index mark on the skirt.
-    const c = meter.colors || (meter.colors = panelColors());
-    ctx.fillStyle = c.lcd;
-    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * R * 0.905, cy + Math.sin(a) * R * 0.905, 1.8, 0, 2 * Math.PI); ctx.fill();
+    g = ctx.createRadialGradient(dx + dr * 0.25, dy + dr * 0.3, 0, dx + dr * 0.25, dy + dr * 0.3, dr * 0.45);
+    g.addColorStop(0, 'rgba(255,255,255,0.28)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(dx, dy, dr, 0, 2 * Math.PI); ctx.fill();
   }
 
   function bindDial() {
@@ -2470,30 +2481,29 @@ registerProcessor('pluto-player', PlutoPlayer);
   const fmtStep = (v) => (v >= 1e6 ? +(v / 1e6).toFixed(3) + 'M' : v >= 1e3 ? +(v / 1e3).toFixed(2) + 'k' : String(v));
   const GAIN_MODES = { manual: 'MGC', slow_attack: 'AGC-S', fast_attack: 'AGC-F', hybrid: 'AGC-H' };
 
+  function setStep(v) {
+    mode().snap = v;
+    $('snap').value = v;
+    updatePanel();
+    save();
+  }
+
   function buildPanel() {
-    const el = $('steps');
-    const key = (label, title, fn) => {
-      const b = document.createElement('button');
-      b.className = 'key';
-      b.textContent = label;
-      b.title = title;
-      b.addEventListener('click', fn);
-      el.appendChild(b);
-      return b;
+    // FINE / FAST walk down / up the STEPS list.
+    const stepBy = (dir) => {
+      const cur = mode().snap;
+      const v = dir > 0 ? STEPS.find((x) => x > cur) : STEPS.findLast((x) => x < cur);
+      if (v) setStep(v);
     };
-    for (const v of STEPS) {
-      key(fmtStep(v), fmtStep(v) + 'Hz ステップ', () => {
-        mode().snap = v;
-        S.fine = false;
-        $('snap').value = v;
-        updatePanel();
-        save();
-      }).dataset.step = v;
-    }
-    key('FINE', 'ダイヤルをステップの 1/10 で細かく動かす', () => { S.fine = !S.fine; updatePanel(); save(); }).id = 'fineBtn';
-    key('AUTO', '速く回したときステップを 10 倍にする', () => { S.autoTs = !S.autoTs; updatePanel(); save(); }).id = 'autoBtn';
-    $('fineBtn').classList.add('mod');
-    $('autoBtn').classList.add('mod');
+    $('fineBtn').addEventListener('click', () => stepBy(-1));
+    $('fastBtn').addEventListener('click', () => stepBy(1));
+    $('autoBtn').addEventListener('click', () => { S.autoTs = !S.autoTs; updatePanel(); save(); });
+    $('lockBtn').addEventListener('click', () => {
+      S.dialLock = !S.dialLock;
+      if (S.dialLock) dial.fly = false;
+      updatePanel();
+      save();
+    });
 
     $('modeBadge').addEventListener('click', () => {
       const order = Object.keys(MODE_DEFAULTS);
@@ -2529,14 +2539,16 @@ registerProcessor('pluto-player', PlutoPlayer);
     }
     $('modeBadge').textContent = S.mode;
     $('bwBadge').textContent = 'BW ' + fmtStep(m.bandwidth);
-    $('tsBadge').textContent = 'TS ' + fmtStep(S.fine ? Math.max(1, m.snap / 10) : m.snap);
+    $('tsBadge').textContent = 'TS ' + fmtStep(m.snap);
     $('agcBadge').textContent = GAIN_MODES[S.gainMode] || S.gainMode;
     $('gainBadge').textContent = 'G ' + Math.round(curGain);
     $('srBadge').textContent = +(S.sampleRate / 1e6).toFixed(3) + 'M';
     $('sqlBadge').classList.toggle('on', S.squelchOn);
-    for (const b of $('steps').querySelectorAll('[data-step]')) b.classList.toggle('active', +b.dataset.step === m.snap);
-    $('fineBtn').classList.toggle('active', S.fine);
+    $('fineBtn').disabled = !STEPS.some((x) => x < m.snap);
+    $('fastBtn').disabled = !STEPS.some((x) => x > m.snap);
     $('autoBtn').classList.toggle('active', S.autoTs);
+    $('lockBtn').classList.toggle('active', S.dialLock);
+    dialCanvas.classList.toggle('locked', S.dialLock);
   }
 
   // ---------------- colormaps ----------------
@@ -2727,7 +2739,6 @@ registerProcessor('pluto-player', PlutoPlayer);
       }
     }
 
-    drawWifiChannels(ctx, W, plotH, va, vb);
 
     // VFO.
     if (state !== 'sweep') drawVfo(ctx, W, plotH, true);
@@ -2752,39 +2763,6 @@ registerProcessor('pluto-player', PlutoPlayer);
       ctx.textBaseline = 'middle';
       ctx.fillText(txt, tx + 5 * dpr, 15 * dpr);
     }
-  }
-
-  // Wi-Fi channel numbers along the top while a Wi-Fi band is shown.
-  function drawWifiChannels(ctx, W, H, va, vb) {
-    const band = activeBand();
-    if (!band || !band.wifi) return;
-    const chans = WIFI_CHANNELS.filter(([, f, w]) => f + w / 2 > va && f - w / 2 < vb);
-    if (!chans.length) return;
-    const px = (f) => ((f - va) / (vb - va)) * W;
-    ctx.font = `${11 * dpr}px ui-monospace, Menlo, monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    // Skip labels that would overlap (2.4 GHz channels are 5 MHz apart).
-    const minGap = ctx.measureText('ch144').width + 6 * dpr;
-    let lastX = -Infinity, row = 0;
-    for (const [n, f, w] of chans) {
-      const x = px(f), xa = px(f - w / 2), xb = px(f + w / 2);
-      const y = 4 * dpr + (row % 2) * 4 * dpr;
-      row++;
-      ctx.strokeStyle = 'rgba(245,217,10,0.35)';
-      ctx.lineWidth = Math.max(1, dpr);
-      ctx.beginPath(); ctx.moveTo(xa + 1, y); ctx.lineTo(xb - 1, y); ctx.stroke();
-      ctx.setLineDash([3 * dpr, 4 * dpr]);
-      ctx.strokeStyle = 'rgba(245,217,10,0.18)';
-      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, y); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
-      ctx.setLineDash([]);
-      if (x - lastX >= minGap) {
-        ctx.fillStyle = 'rgba(245,217,10,0.85)';
-        ctx.fillText('ch' + n, x, 12 * dpr);
-        lastX = x;
-      }
-    }
-    ctx.textAlign = 'left';
   }
 
   function drawVfo(ctx, W, H, label) {
@@ -3273,7 +3251,7 @@ registerProcessor('pluto-player', PlutoPlayer);
       const [mn, mx] = BW_LIMITS[S.mode];
       setBandwidth(clamp((+e.target.value || 0) * 1e3, mn, mx));
     });
-    on('snap', 'change', (e) => { mode().snap = +e.target.value; S.fine = false; updatePanel(); save(); });
+    on('snap', 'change', (e) => setStep(+e.target.value));
     on('deemph', 'change', (e) => { mode().deemph = +e.target.value; workerConfig(); save(); });
     on('stereo', 'change', (e) => { S.stereo = e.target.checked; workerConfig(); save(); });
     on('squelchOn', 'change', (e) => { S.squelchOn = e.target.checked; workerConfig(); updateMeter(); updatePanel(); save(); });
