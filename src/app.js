@@ -1020,12 +1020,19 @@
       type: 'config',
       cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate },
     });
-    await pluto.disableDds();
-    await pluto.setTxFrequency(S.vfo);
-    await pluto.setTxAttenuation(S.txAtten);
-    await pluto.setKernelBuffers(TX_KERNEL_BUFFERS, pluto.txDev);
-    await pluto.startTx(m * L);
-    await pluto.setTxLoPower(true);
+    // The device can drop off the bus while the TX chain powers up (a weak
+    // USB supply sags); report that instead of failing on a null device.
+    const p = pluto;
+    const step = async (fn) => {
+      await fn();
+      if (pluto !== p) throw new Error('送信開始中に Pluto が切断されました。USB の電源不足の可能性があります（直結するか、PWR 端子に電源を入れてください）');
+    };
+    await step(() => p.disableDds());
+    await step(() => p.setTxFrequency(S.vfo));
+    await step(() => p.setTxAttenuation(S.txAtten));
+    await step(() => p.setKernelBuffers(TX_KERNEL_BUFFERS, p.txDev));
+    await step(() => p.startTx(m * L));
+    await step(() => p.setTxLoPower(true));
     const token = ++tx.token;
     tx.on = true;
     tx.mode = S.mode; tx.bw = mode().bandwidth;
@@ -1071,7 +1078,7 @@
       while (tx.want !== tx.on) {
         if (tx.want) {
           let ok = false;
-          try { ok = await txStartNow(); } catch (e) { toast('送信できません: ' + e.message); }
+          try { ok = await txStartNow(); } catch (e) { toast(/切断/.test(e.message) ? e.message : '送信できません: ' + e.message); }
           if (!ok) { tx.want = false; if (pluto && pluto.tx) await txStopNow(); }
         } else {
           await txStopNow();
