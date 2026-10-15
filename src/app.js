@@ -1026,14 +1026,14 @@
     });
     // Report a device lost mid-way instead of failing on a null device.
     const p = pluto;
-    const step = async (fn) => {
-      await fn();
-      if (pluto !== p) throw new Error('送信開始中に Pluto が切断されました');
+    const step = async (name, fn) => {
+      try { await fn(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
+      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}）`);
     };
-    await step(() => p.setTxFrequency(S.vfo));
-    await step(() => p.setTxAttenuation(S.txAtten));
-    await step(() => p.setKernelBuffers(TX_KERNEL_BUFFERS, p.txDev));
-    await step(() => p.startTx(m * L));
+    await step('TX LO', () => p.setTxFrequency(S.vfo));
+    await step('TX level', () => p.setTxAttenuation(S.txAtten));
+    await step('buffers', () => p.setKernelBuffers(TX_KERNEL_BUFFERS, p.txDev));
+    await step('open TX', () => p.startTx(m * L));
     const token = ++tx.token;
     tx.on = true;
     tx.mode = S.mode; tx.bw = mode().bandwidth;
