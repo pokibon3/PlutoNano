@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pluto Nano SDR</title>
+<title>Pluto SDR Nano</title>
 <meta name="theme-color" content="#18181a">
 <style>:root {
   --bg: #0f0f10;
@@ -251,7 +251,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.9</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.5.0</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -446,8 +446,8 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 
 <div id="intro" hidden>
   <div class="intro-box">
-    <h1>Pluto Nano SDR</h1>
-    <p>ADALM-Pluto を USB で接続し、<b>Connect</b> を押してデバイスを選択してください。</p>
+    <h1>Pluto SDR Nano</h1>
+    <p>Pluto SDR Nano を USB で接続し、<b>Connect</b> を押してデバイスを選択してください。</p>
     <ul>
       <li>Chrome / Edge が必要です（WebUSB）。</li>
       <li>スペクトラム / ウォーターフォールをクリックで同調、ドラッグで VFO 移動、ホイールでステップ同調、Ctrl+ホイールでズーム。</li>
@@ -915,7 +915,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
   }
 
   // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
-  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto DAC.
+  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto SDR Nano DAC.
   // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
   const NFM_DEV = 5e3;
   class Transmitter {
@@ -1629,7 +1629,7 @@ configure({});
   }
 
   // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
-  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto DAC.
+  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto SDR Nano DAC.
   // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
   const NFM_DEV = 5e3;
   class Transmitter {
@@ -1947,7 +1947,7 @@ class PlutoMic extends AudioWorkletProcessor {
 
 registerProcessor('pluto-mic', PlutoMic);
 </script>
-<script>// ADALM-Pluto driver over WebUSB.
+<script>// Pluto SDR Nano (ADALM-Pluto compatible) driver over WebUSB.
 //
 // Speaks the IIOD text protocol that libiio's USB backend uses: the device
 // exposes a vendor interface named "IIO" with pairs of bulk endpoints
@@ -2387,7 +2387,7 @@ registerProcessor('pluto-mic', PlutoMic);
   else root.Pluto = Pluto;
 })(typeof self !== 'undefined' ? self : globalThis);
 </script>
-<script>// Pluto Nano SDR — UI, stream control, rendering and wideband scan.
+<script>// Pluto SDR Nano — UI, stream control, rendering and wideband scan.
 
 (function () {
   'use strict';
@@ -2707,15 +2707,15 @@ registerProcessor('pluto-mic', PlutoMic);
       // Keep the transmitter quiet until PTT (the DDS tone is on at boot).
       await p.txIdle().catch(() => {});
       setStatus();
-      toast('Pluto に接続しました', 'info');
+      toast('Pluto SDR Nano に接続しました', 'info');
       await startLive();
     } catch (e) {
       pluto = null;
       setStatus();
       if (e && e.name === 'NotFoundError') return; // chooser cancelled
-      let msg = 'Pluto に接続できません: ' + (e && e.message ? e.message : e);
+      let msg = 'Pluto SDR Nano に接続できません: ' + (e && e.message ? e.message : e);
       if (e && e.name === 'SecurityError') msg += '（このページの読み込み方法では WebUSB が使えません）';
-      if (/claim|busy|Unable/i.test(msg)) msg += ' — 他のアプリ（iio_info など）が Pluto を使っていないか確認してください。';
+      if (/claim|busy|Unable/i.test(msg)) msg += ' — 他のアプリ（iio_info など）が Pluto SDR Nano を使っていないか確認してください。';
       toast(msg);
     }
   }
@@ -2745,7 +2745,7 @@ registerProcessor('pluto-mic', PlutoMic);
     $('devName').textContent = '—';
     setStatus();
     workerConfig();
-    toast(msg || 'Pluto との接続が切れました');
+    toast(msg || 'Pluto SDR Nano との接続が切れました');
   }
 
   if (navigator.usb) {
@@ -3428,7 +3428,7 @@ registerProcessor('pluto-mic', PlutoMic);
   }
 
   // ---------------- transmit ----------------
-  // Japanese amateur bands within the Pluto's range. TX is allowed only when
+  // Japanese amateur bands within the Pluto SDR Nano's range. TX is allowed only when
   // the whole emission (txEdges) lies inside one of them.
   const TX_BANDS = [[144e6, 146e6], [430e6, 440e6], [1260e6, 1300e6], [2400e6, 2450e6], [5650e6, 5850e6]];
   const TX_MODES = ['NFM', 'AM', 'USB', 'LSB', 'CW'];
@@ -3462,8 +3462,8 @@ registerProcessor('pluto-mic', PlutoMic);
 
   // Why TX is not possible right now, or '' when it is.
   function txBlocked() {
-    if (!pluto) return 'Pluto が接続されていません';
-    if (!pluto.canTx) return 'この Pluto では送信できません';
+    if (!pluto) return 'Pluto SDR Nano が接続されていません';
+    if (!pluto.canTx) return 'この Pluto SDR Nano では送信できません';
     if (!S.txEnabled) return '送信が無効です（サイドバーの Transmit で有効にしてください）';
     if (!TX_MODES.includes(S.mode)) return `${S.mode} では送信できません`;
     if (state === 'sweep') return 'スキャン中は送信できません';
@@ -3550,7 +3550,7 @@ registerProcessor('pluto-mic', PlutoMic);
     const p = pluto;
     const step = async (name, fn) => {
       try { await fn(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
-      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}${lostReason ? ' / ' + lostReason : ''}）`);
+      if (pluto !== p) throw new Error(`送信開始中に Pluto SDR Nano が切断されました（${name}${lostReason ? ' / ' + lostReason : ''}）`);
     };
     await step('TX LO', () => p.setTxFrequency(S.vfo));
     await step('TX level', () => p.setTxAttenuation(S.txAtten));
@@ -3693,7 +3693,7 @@ registerProcessor('pluto-mic', PlutoMic);
   function setTxEnabled(on) {
     if (on && !S.txLicenseOk) {
       on = confirm('送信機能を有効にします。\n\n' +
-        '・アマチュア無線局の免許を受け、この Pluto を無線設備として登録した局だけが送信できます。\n' +
+        '・アマチュア無線局の免許を受け、この Pluto SDR Nano を無線設備として登録した局だけが送信できます。\n' +
         '・スプリアス対策のフィルタ（LPF / BPF）を必ず入れてください。\n' +
         '・アプリの制限（アマチュアバンド内のみ）は誤送信を防ぐ補助で、法令への適合を保証するものではありません。\n\n' +
         '上記を理解し、法令を守って運用しますか？');

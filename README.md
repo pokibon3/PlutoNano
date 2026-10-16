@@ -1,6 +1,6 @@
-# Pluto Nano SDR
+# Pluto SDR Nano
 
-ADALM-Pluto（Pluto Nano）専用の、ブラウザで動く SDR 受信機。WebUSB で Pluto と直接通信するので、サーバーもドライバのインストールも要らない。画面は SDR++ を参考にし、操作部は ICOM の無線機風にしている。
+Pluto SDR Nano（ADALM-Pluto 互換の小型 SDR）専用の、ブラウザで動く SDR 受信機。WebUSB で Pluto SDR Nano と直接通信するので、サーバーもドライバのインストールも要らない。画面は SDR++ を参考にし、操作部は ICOM の無線機風にしている。
 
 **アプリ: https://pokibon3.github.io/PlutoNano/**
 
@@ -8,12 +8,12 @@ ADALM-Pluto（Pluto Nano）専用の、ブラウザで動く SDR 受信機。Web
 
 ## 使い方
 
-1. Pluto を USB で接続する（`iio_info` や `screen` など他のアプリが掴んでいないこと）
+1. Pluto SDR Nano を USB で接続する（`iio_info` や `screen` など他のアプリが掴んでいないこと）
 2. Chrome / Edge で https://pokibon3.github.io/PlutoNano/ を開く（ローカルの `dist/PlutoNano.html` でもよい）
-3. **Connect** → 一覧から Pluto を選ぶ。接続すると自動で受信を始める
+3. **Connect** → 一覧から Pluto SDR Nano を選ぶ。接続すると自動で受信を始める
 4. 最初の 1 回だけ、画面をクリックすると音が出る（ブラウザの自動再生制限のため）
 
-2 回目以降は、ページを開くと許可済みの Pluto に自動で接続する。
+2 回目以降は、ページを開くと許可済みの Pluto SDR Nano に自動で接続する。
 
 ### アプリとしてインストール（PWA）
 
@@ -31,7 +31,7 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 | 環境 | 状況 |
 |---|---|
 | macOS + Chrome / Edge | 動作確認済み |
-| Windows + Chrome / Edge | 未確認。Pluto の IIO インターフェースに WinUSB ドライバが割り当たっている必要がある |
+| Windows + Chrome / Edge | 未確認。Pluto SDR Nano の IIO インターフェースに WinUSB ドライバが割り当たっている必要がある |
 | Linux + Chrome / Edge | 未確認。一般ユーザーで USB にアクセスできるよう udev ルールが必要 |
 | ChromeOS | 未確認（WebUSB・PWA とも対応している） |
 | Android + Chrome | 未確認。USB OTG 接続で WebUSB が使える可能性がある |
@@ -76,10 +76,10 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 - S メーター:
   - dBm は「dBFS − RX ゲイン + 補正値」で換算する。S9 = −93 dBm（VHF/UHF の慣例）、S 1 つ = 6 dB
   - 正確な値が必要なら、既知のレベルの信号を入れてサイドバーの **S-meter cal** で合わせる
-- 周波数補正: サイドバーの **Freq. corr.**（ppm）で Pluto の水晶の誤差を補正する。ずれ(Hz) ÷ 周波数(MHz) = ppm
+- 周波数補正: サイドバーの **Freq. corr.**（ppm）で基準クロックの誤差を補正する。ずれ(Hz) ÷ 周波数(MHz) = ppm
 - Wideband scan: 20 MSPS・16 MHz ステップで指定範囲を掃引する（約 7 ms/ステップ）。結果をクリックすると、その周波数で受信を始める
 - 受信範囲は 70 MHz〜6 GHz（AD9364 の仕様。70 MHz 未満を受けるにはアップコンバーターが必要）
-- サンプルレート: 2.4〜7.68 MSPS。2.083 MSPS 未満は Pluto に FIR フィルタの読み込みが必要なので選べない（受け付けられないレートを書き込むと、次のレート変更で Pluto が固まる）。USB 2.0 の実効上限が約 8 MSPS なので、連続受信は 6 MSPS 以下を推奨。7.68 MSPS では音が途切れることがある
+- サンプルレート: 2.4〜7.68 MSPS。2.083 MSPS 未満は Pluto SDR Nano に FIR フィルタの読み込みが必要なので選べない（受け付けられないレートを書き込むと、次のレート変更で Pluto SDR Nano が固まる）。USB 2.0 の実効上限が約 8 MSPS なので、連続受信は 6 MSPS 以下を推奨。7.68 MSPS では音が途切れることがある
 
 ### 送信
 
@@ -95,16 +95,16 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 - 送信中は情報行の **TX** とダイヤルの LED が赤く点灯する
 - 送信中は S メーターが PO（出力）メーターになる。0〜5 mW（TX level 0 dB でフルスケールの信号を 5 mW とした推定値）と dBm の目盛り
 - 送信中も自分の信号をスペクトラム / ウォーターフォールで見られる。受信は DC を除去するので、受信 LO が VFO に近いときは送信開始時に 200 kHz ずらす（表示は VFO 中心のまま）。サイドバーの Status に書き込んだブロック数・ピーク・レートを表示する
-- 送信しないときは、減衰量を最大（−89.75 dB）にしておく。Pluto は起動時から DDS のテスト信号を出しているが、これで約 −90 dBm 以下になる。DDS や TX LO の電源は切らない（切ると、次のサンプルレート変更や送信開始で Pluto が固まる）
+- 送信しないときは、減衰量を最大（−89.75 dB）にしておく。Pluto SDR Nano は起動時から DDS のテスト信号を出しているが、これで約 −90 dBm 以下になる。DDS や TX LO の電源は切らない（切ると、次のサンプルレート変更や送信開始で Pluto SDR Nano が固まる）
 - サンプルレート・RF 帯域幅・周波数補正を変えると AD9361 が校正をやり直し、そのとき TX LO の周波数で一瞬電波が出る（AD9361 の仕様）。値が変わらないときは書き込まない
 - 送信 LO は VFO の周波数に置くので、SSB ではキャリアの漏れが少し残る
 - 送信中は USB で送受信の両方のデータを流すので、サンプルレートは 2.4 MSPS 前後を推奨（6 MSPS 以上では送信が途切れる）
 
-**注意**: 実際に電波を出すには、アマチュア無線局の免許を受け、この Pluto を無線設備として登録する必要がある。Pluto の出力にはスプリアスや高調波が含まれるので、外付けの LPF / BPF を必ず入れること。アプリの制限は誤送信を防ぐ補助で、法令への適合を保証するものではない。
+**注意**: 実際に電波を出すには、アマチュア無線局の免許を受け、この Pluto SDR Nano を無線設備として登録する必要がある。Pluto SDR Nano の出力にはスプリアスや高調波が含まれるので、外付けの LPF / BPF を必ず入れること。アプリの制限は誤送信を防ぐ補助で、法令への適合を保証するものではない。
 
 ## 前提
 
-Pluto は `fw_setenv attr_val ad9364`（Rev.B）で 70 MHz〜6 GHz に拡張済みであることを前提にしている。AD9363 のままだと 325 MHz〜3.8 GHz に制限される（接続時に表示される）。
+Pluto SDR Nano は `fw_setenv attr_val ad9364`（Rev.B）で 70 MHz〜6 GHz に拡張済みであることを前提にしている。AD9363 のままだと 325 MHz〜3.8 GHz に制限される（接続時に表示される）。
 
 ## 構成
 
@@ -131,7 +131,7 @@ npm run test:usb             # 実機で pluto.js を検証（Node + node-usb）
 node tools/test-tx.mjs       # 実機で送信経路を検証（最小出力 −89.75 dB、430 MHz 帯）
 node tools/test-dsp.mjs      # 合成信号で復調・変調を検証
 node tools/make-icons.mjs    # pwa/icon.svg から PNG アイコンを生成
-node tools/browser-check.mjs shot.png --mock   # ヘッドレス Chrome + 擬似 Pluto で画面確認
+node tools/browser-check.mjs shot.png --mock   # ヘッドレス Chrome + 擬似デバイス で画面確認
 ```
 
 `browser-check.mjs` の環境変数:

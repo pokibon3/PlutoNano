@@ -1,7 +1,7 @@
 {
-  "name": "Pluto Nano SDR",
-  "short_name": "Pluto Nano",
-  "description": "ADALM-Pluto Software Defined Radio over WebUSB",
+  "name": "Pluto SDR Nano",
+  "short_name": "Pluto SDR Nano",
+  "description": "Pluto SDR Nano Software Defined Radio over WebUSB",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

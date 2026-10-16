@@ -1,4 +1,4 @@
-// Pluto Nano SDR — UI, stream control, rendering and wideband scan.
+// Pluto SDR Nano — UI, stream control, rendering and wideband scan.
 
 (function () {
   'use strict';
@@ -318,15 +318,15 @@
       // Keep the transmitter quiet until PTT (the DDS tone is on at boot).
       await p.txIdle().catch(() => {});
       setStatus();
-      toast('Pluto に接続しました', 'info');
+      toast('Pluto SDR Nano に接続しました', 'info');
       await startLive();
     } catch (e) {
       pluto = null;
       setStatus();
       if (e && e.name === 'NotFoundError') return; // chooser cancelled
-      let msg = 'Pluto に接続できません: ' + (e && e.message ? e.message : e);
+      let msg = 'Pluto SDR Nano に接続できません: ' + (e && e.message ? e.message : e);
       if (e && e.name === 'SecurityError') msg += '（このページの読み込み方法では WebUSB が使えません）';
-      if (/claim|busy|Unable/i.test(msg)) msg += ' — 他のアプリ（iio_info など）が Pluto を使っていないか確認してください。';
+      if (/claim|busy|Unable/i.test(msg)) msg += ' — 他のアプリ（iio_info など）が Pluto SDR Nano を使っていないか確認してください。';
       toast(msg);
     }
   }
@@ -356,7 +356,7 @@
     $('devName').textContent = '—';
     setStatus();
     workerConfig();
-    toast(msg || 'Pluto との接続が切れました');
+    toast(msg || 'Pluto SDR Nano との接続が切れました');
   }
 
   if (navigator.usb) {
@@ -1039,7 +1039,7 @@
   }
 
   // ---------------- transmit ----------------
-  // Japanese amateur bands within the Pluto's range. TX is allowed only when
+  // Japanese amateur bands within the Pluto SDR Nano's range. TX is allowed only when
   // the whole emission (txEdges) lies inside one of them.
   const TX_BANDS = [[144e6, 146e6], [430e6, 440e6], [1260e6, 1300e6], [2400e6, 2450e6], [5650e6, 5850e6]];
   const TX_MODES = ['NFM', 'AM', 'USB', 'LSB', 'CW'];
@@ -1073,8 +1073,8 @@
 
   // Why TX is not possible right now, or '' when it is.
   function txBlocked() {
-    if (!pluto) return 'Pluto が接続されていません';
-    if (!pluto.canTx) return 'この Pluto では送信できません';
+    if (!pluto) return 'Pluto SDR Nano が接続されていません';
+    if (!pluto.canTx) return 'この Pluto SDR Nano では送信できません';
     if (!S.txEnabled) return '送信が無効です（サイドバーの Transmit で有効にしてください）';
     if (!TX_MODES.includes(S.mode)) return `${S.mode} では送信できません`;
     if (state === 'sweep') return 'スキャン中は送信できません';
@@ -1161,7 +1161,7 @@
     const p = pluto;
     const step = async (name, fn) => {
       try { await fn(); } catch (e) { throw new Error(`${name}: ${e.message}`); }
-      if (pluto !== p) throw new Error(`送信開始中に Pluto が切断されました（${name}${lostReason ? ' / ' + lostReason : ''}）`);
+      if (pluto !== p) throw new Error(`送信開始中に Pluto SDR Nano が切断されました（${name}${lostReason ? ' / ' + lostReason : ''}）`);
     };
     await step('TX LO', () => p.setTxFrequency(S.vfo));
     await step('TX level', () => p.setTxAttenuation(S.txAtten));
@@ -1304,7 +1304,7 @@
   function setTxEnabled(on) {
     if (on && !S.txLicenseOk) {
       on = confirm('送信機能を有効にします。\n\n' +
-        '・アマチュア無線局の免許を受け、この Pluto を無線設備として登録した局だけが送信できます。\n' +
+        '・アマチュア無線局の免許を受け、この Pluto SDR Nano を無線設備として登録した局だけが送信できます。\n' +
         '・スプリアス対策のフィルタ（LPF / BPF）を必ず入れてください。\n' +
         '・アプリの制限（アマチュアバンド内のみ）は誤送信を防ぐ補助で、法令への適合を保証するものではありません。\n\n' +
         '上記を理解し、法令を守って運用しますか？');

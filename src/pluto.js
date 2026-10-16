@@ -1,4 +1,4 @@
-// ADALM-Pluto driver over WebUSB.
+// Pluto SDR Nano (ADALM-Pluto compatible) driver over WebUSB.
 //
 // Speaks the IIOD text protocol that libiio's USB backend uses: the device
 // exposes a vendor interface named "IIO" with pairs of bulk endpoints

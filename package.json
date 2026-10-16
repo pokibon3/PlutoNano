@@ -1,8 +1,8 @@
 {
   "name": "pluto-nano-sdr",
-  "version": "1.4.9",
+  "version": "1.5.0",
   "private": true,
-  "description": "Standalone browser SDR for ADALM-Pluto over WebUSB",
+  "description": "Standalone browser SDR for Pluto SDR Nano over WebUSB",
   "scripts": {
     "build": "node tools/build.mjs",
     "test:usb": "node tools/test-pluto.mjs"

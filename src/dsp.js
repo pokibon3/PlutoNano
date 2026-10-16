@@ -456,7 +456,7 @@
   }
 
   // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
-  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto DAC.
+  // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto SDR Nano DAC.
   // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
   const NFM_DEV = 5e3;
   class Transmitter {
