@@ -251,7 +251,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.7</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto Nano</b><small class="ver">v1.4.8</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -3005,7 +3005,21 @@ registerProcessor('pluto-mic', PlutoMic);
   }
   const meter = { target: 0, x: 0, v: 0, peak: 0, peakAt: 0, sq: null, key: '', colors: null };
 
+  // While transmitting the meter is a PO (output power) meter, 0..TX_PO_MAX
+  // mW, from the I/Q power sent and the TX attenuation. 0 dB with a
+  // full-scale DAC is taken as TX_PO_MAX.
+  const TX_PO_MAX = 5;
+  const poPos = (mw) => clamp(mw / TX_PO_MAX, 0, 1);
   function updateMeter() {
+    if (tx.on) {
+      const mw = tx.powMw || 0, dbm = 10 * Math.log10(Math.max(mw, 1e-9));
+      meter.target = poPos(mw);
+      $('meterS').textContent = 'PO';
+      $('meterText').textContent = (mw >= 0.1 ? mw.toFixed(2) + ' mW' : (mw * 1000).toFixed(1) + ' µW');
+      $('meterText').title = mw > 0 ? dbm.toFixed(1) + ' dBm' : '';
+      meter.sq = null;
+      return;
+    }
     const live = state === 'live' && levelDb > -199;
     const dbm = toDbm(levelDb);
     meter.target = live ? meterPos(dbm) : 0;
@@ -3029,7 +3043,7 @@ registerProcessor('pluto-mic', PlutoMic);
     }
     if (meter.x >= meter.peak) { meter.peak = meter.x; meter.peakAt = now; }
     else if (now - meter.peakAt > 1500) meter.peak = Math.max(meter.x, meter.peak - dt * 0.6);
-    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S.meterCal,
+    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S.meterCal, tx.on,
       smeterCanvas.clientWidth, smeterCanvas.clientHeight, dpr].join();
     if (key !== meter.key) { meter.key = key; drawMeter(); }
   }
@@ -3079,7 +3093,7 @@ registerProcessor('pluto-mic', PlutoMic);
       ctx.font = `700 8px "Helvetica Neue", Arial, sans-serif`;
       ctx.fillStyle = '#ffffff';
       ctx.letterSpacing = '1px';
-      ctx.fillText('S METER', cx, 6);
+      ctx.fillText(tx.on ? 'PO METER' : 'S METER', cx, 6);
       ctx.letterSpacing = '0px';
       // Draws one arc with ticks; marks = [[pos, label, major, colour]].
       const scale = (R, marks, split) => {
@@ -3099,6 +3113,27 @@ registerProcessor('pluto-mic', PlutoMic);
           if (t) ctx.fillText(t, ...pt(p, R + 11));
         }
       };
+      if (tx.on) {
+        // PO: mW (linear) over dBm.
+        ctx.font = ital(10.5, 700);
+        const pMarks = [];
+        for (let i = 0; i <= 10; i++) pMarks.push([i / 10, i % 2 ? '' : String(i / 2), i % 2 === 0]);
+        scale(R1, pMarks);
+        ctx.font = ital(12, 800);
+        ctx.fillStyle = ink;
+        ctx.fillText('PO', ...pt(-0.08, R1 + 6));
+        ctx.font = ital(8, 700);
+        ctx.fillText('mW', ...pt(1.0, R1 + 21));
+        const R2 = R1 - 25;
+        ctx.font = ital(8.5, 600);
+        // -10 / -5 dBm crowd the left end: ticks only.
+        const dMarks = [-10, -5, 0, 3, 5, 7].map((d) => [poPos(10 ** (d / 10)), d < 0 ? '' : (d > 0 ? '+' : '') + d, d >= 0]);
+        scale(R2, dMarks);
+        ctx.font = ital(8, 800);
+        ctx.textAlign = 'right';
+        ctx.fillText('dBm', ...pt(-0.01, R2 + 1).map((v, i) => v - (i ? 0 : 3)));
+        ctx.textAlign = 'center';
+      } else {
       // S scale.
       ctx.font = ital(10.5, 700);
       const sMarks = [];
@@ -3141,6 +3176,7 @@ registerProcessor('pluto-mic', PlutoMic);
         ctx.fillStyle = blue;
         ctx.beginPath(); ctx.arc(...pt(meter.sq, R1 - 4), 2, 0, 2 * Math.PI); ctx.fill();
       }
+      }
       // Needle from below the window, with a faint glow.
       const t = ang(meter.x), ux = Math.cos(t), uy = Math.sin(t);
       const r0 = cy - h - 2, r1 = R1 + 7;
@@ -3155,6 +3191,26 @@ registerProcessor('pluto-mic', PlutoMic);
     const mono = (px, wgt = 600) => `${wgt} ${px}px ui-monospace, Menlo, monospace`;
     const x0 = 16, bw = w - 34, rail = h * 0.42, by = rail + 7, bh = Math.round(h * 0.26), N = 48;
     const sw = bw / N;
+    if (tx.on) {
+      ctx.font = mono(9, 700);
+      ctx.fillStyle = c.over;
+      ctx.fillText('PO', 8, rail - 12);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = c.lcd;
+      tick(x0, rail, x0 + bw, rail);
+      for (let i = 0; i <= 10; i++) {
+        const x = x0 + i / 10 * bw;
+        tick(x, rail, x, rail - (i % 2 ? 3 : 5));
+        if (i % 2 === 0) { ctx.font = mono(10, 700); ctx.fillStyle = c.lcd; ctx.fillText(String(i / 2), x, rail - 13); }
+      }
+      const lit = meter.x * N, pk = Math.min(N - 1, Math.floor(meter.peak * N));
+      for (let i = 0; i < N; i++) {
+        const on = i + 0.5 <= lit || (i === pk && meter.peak > 0.01);
+        ctx.fillStyle = on ? c.over : c.ghost;
+        ctx.fillRect(x0 + i * sw + 0.75, by, sw - 1.5, bh);
+      }
+      return;
+    }
     ctx.font = mono(11, 700);
     ctx.fillStyle = c.lcd;
     ctx.fillText('S', 7, rail - 12);
@@ -3441,9 +3497,17 @@ registerProcessor('pluto-mic', PlutoMic);
           await pluto.writeTx(iq);
           // Status: blocks written, peak level, effective rate.
           const st = tx.stats;
-          let pk = 0;
-          for (let i = 0; i < iq.length; i += 7) { const v = Math.abs(iq[i]); if (v > pk) pk = v; }
+          let pk = 0, pw = 0;
+          for (let i = 0; i + 1 < iq.length; i += 14) {
+            const a = Math.abs(iq[i]); if (a > pk) pk = a;
+            pw += iq[i] * iq[i] + iq[i + 1] * iq[i + 1];
+          }
           st.peak = Math.max(st.peak * 0.9, pk);
+          // Mean power of this block relative to a full-scale carrier.
+          const rel = pw / Math.ceil(iq.length / 14) / (32752 * 32752);
+          const mw = TX_PO_MAX * 10 ** (S.txAtten / 10) * rel;
+          tx.powMw = mw > (tx.powMw || 0) ? mw : tx.powMw * 0.85 + mw * 0.15;
+          if (st.blocks % 3 === 0) updateMeter();
           if (++st.blocks % 10 === 0) {
             const sec = (performance.now() - st.t0) / 1000;
             const rate = st.blocks * iq.length / 2 / sec / 1e6;
@@ -3460,6 +3524,7 @@ registerProcessor('pluto-mic', PlutoMic);
 
   async function txStopNow() {
     tx.on = false;
+    tx.powMw = 0;
     tx.token++;
     clearTimeout(tx.tot);
     txWorker.postMessage({ type: 'stop' });
@@ -3539,6 +3604,7 @@ registerProcessor('pluto-mic', PlutoMic);
   }
 
   function updateTx() {
+    if (tx.meterOn !== tx.on) { tx.meterOn = tx.on; meter.peak = 0; updateMeter(); }
     $('txInd').classList.toggle('on', tx.on);
     $('btnPtt').classList.toggle('on', tx.on || tx.keyDown);
     $('btnPtt').disabled = !pluto || !S.txEnabled;
