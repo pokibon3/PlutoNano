@@ -49,6 +49,7 @@
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
+    audioOut: '', audioIn: '',
   };
 
   // ---------------- settings ----------------
@@ -150,6 +151,7 @@
   async function ensureAudio() {
     if (audio) { resumeAudio(); return; }
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
+    if (S.audioOut) applySink(ctx);
     const gain = ctx.createGain();
     gain.gain.value = S.volume ** 2;
     gain.connect(ctx.destination);
@@ -177,6 +179,60 @@
     // Drop what piled up while suspended so playback starts without lag.
     ctx.addEventListener('statechange', () => { if (ctx.state === 'running') node.port.postMessage({ reset: true }); });
     resumeAudio();
+  }
+
+  // ---------------- audio devices ----------------
+  const canSink = typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
+  const hasDevices = !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices);
+
+  async function applySink(ctx) {
+    try {
+      await ctx.setSinkId(S.audioOut);
+    } catch (e) {
+      toast('出力デバイスを使えません。既定の出力に戻します: ' + e.message);
+      S.audioOut = ''; save(); refreshAudioDevices();
+      try { await ctx.setSinkId(''); } catch (e2) { /* ignore */ }
+    }
+  }
+
+  // Without mic permission the labels are empty and the ids are not
+  // stable, so the names button asks once.
+  async function refreshAudioDevices() {
+    if (!hasDevices) return;
+    let list = [];
+    try { list = await navigator.mediaDevices.enumerateDevices(); } catch (e) { /* ignore */ }
+    let unnamed = false;
+    const fill = (sel, kind, cur) => {
+      const devs = list.filter((d) => d.kind === kind && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+      sel.innerHTML = '';
+      const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+      add('', '既定（システム設定）');
+      devs.forEach((d, i) => { if (!d.label) unnamed = true; add(d.deviceId, d.label || `${kind === 'audioinput' ? '入力' : '出力'} ${i + 1}`); });
+      if (cur && !devs.some((d) => d.deviceId === cur)) add(cur, '保存済みのデバイス（未接続）');
+      sel.value = cur;
+    };
+    fill($('audioIn'), 'audioinput', S.audioIn);
+    if (canSink) fill($('audioOut'), 'audiooutput', S.audioOut);
+    $('audioNamesRow').hidden = !unnamed;
+  }
+
+  function releaseMic() {
+    if (tx.mic) {
+      tx.mic.src.disconnect();
+      tx.mic.node.disconnect();
+      tx.mic.node.port.postMessage({ stop: true });
+      tx.mic = null;
+    }
+    if (tx.stream) { tx.stream.getTracks().forEach((t) => t.stop()); tx.stream = null; }
+  }
+
+  async function setAudioIn(id) {
+    S.audioIn = id; save();
+    const live = !!tx.mic;
+    releaseMic();
+    if (live) {
+      try { await ensureMic(); } catch (e) { toast('マイクを開けません: ' + e.message); }
+    }
   }
 
   // Fallback player on the main thread for browsers without usable worklets.
@@ -1035,9 +1091,17 @@
 
   async function ensureMic() {
     if (!tx.stream) {
-      tx.stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-      });
+      const audioOpts = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
+      if (S.audioIn) {
+        try {
+          tx.stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({ deviceId: { exact: S.audioIn } }, audioOpts) });
+        } catch (e) {
+          if (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError') throw e;
+          toast('選択した入力デバイスが見つかりません。既定の入力を使います', 'info');
+        }
+      }
+      if (!tx.stream) tx.stream = await navigator.mediaDevices.getUserMedia({ audio: audioOpts });
+      refreshAudioDevices();
     }
     if (tx.mic) return;
     if (!audio.ctx.hasWorklet) throw new Error('AudioWorklet が使えません');
@@ -1056,7 +1120,7 @@
     const ch = new MessageChannel();
     node.port.postMessage({ port: ch.port1 }, [ch.port1]);
     txWorker.postMessage({ type: 'micPort', port: ch.port2 }, [ch.port2]);
-    tx.mic = { node, analyser };
+    tx.mic = { node, analyser, src };
   }
 
   // CW sidetone at the receive pitch, gated with a short ramp.
@@ -2267,6 +2331,19 @@
     on('snap', 'change', (e) => setStep(+e.target.value));
     on('deemph', 'change', (e) => { mode().deemph = +e.target.value; workerConfig(); save(); });
     on('stereo', 'change', (e) => { S.stereo = e.target.checked; workerConfig(); save(); });
+    $('audioOutRow').hidden = !canSink;
+    if (!hasDevices) $('audioIn').disabled = true;
+    on('audioOut', 'change', (e) => { S.audioOut = e.target.value; save(); if (audio) applySink(audio.ctx); });
+    on('audioIn', 'change', (e) => setAudioIn(e.target.value));
+    on('btnAudioNames', 'click', async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s.getTracks().forEach((t) => t.stop());
+      } catch (e) { toast('マイクの使用が許可されませんでした'); }
+      refreshAudioDevices();
+    });
+    if (hasDevices) navigator.mediaDevices.addEventListener('devicechange', refreshAudioDevices);
+    refreshAudioDevices();
     on('squelchOn', 'change', (e) => { S.squelchOn = e.target.checked; workerConfig(); updateMeter(); updatePanel(); save(); });
     on('squelch', 'input', (e) => {
       S.squelch = +e.target.value;

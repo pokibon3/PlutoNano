@@ -75,10 +75,15 @@ class PlutoMic extends AudioWorkletProcessor {
     this.dst = null;
     this.buf = new Float32Array(256);
     this.n = 0;
-    this.port.onmessage = (e) => { if (e.data && e.data.port) this.dst = e.data.port; };
+    this.done = false;
+    this.port.onmessage = (e) => {
+      if (e.data && e.data.port) this.dst = e.data.port;
+      if (e.data && e.data.stop) this.done = true;
+    };
   }
 
   process(inputs) {
+    if (this.done) return false;
     const x = inputs[0] && inputs[0][0];
     if (x && this.dst) {
       for (let i = 0; i < x.length; i++) {
