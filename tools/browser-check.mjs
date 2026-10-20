@@ -15,6 +15,8 @@ const proc = spawn(chrome, ['--headless=new', '--remote-debugging-port=9333', `-
   '--window-size=1400,850', '--autoplay-policy=no-user-gesture-required',
   // Fake microphone for the TX path.
   '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', 'about:blank'], { stdio: 'ignore' });
+// Never leave headless Chrome running (and playing audio) when this script fails.
+process.on('exit', () => proc.kill());
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let targets;

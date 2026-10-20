@@ -458,6 +458,8 @@
   // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
   // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto SDR Nano DAC.
   // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
+  // data: generated audio (FT8 / FT4) goes to the band filter as it is, without
+  // the voice high-pass and clipper.
   const NFM_DEV = 5e3;
   class Transmitter {
     constructor(o) {
@@ -467,6 +469,7 @@
       this.mode = o.mode;
       this.bandwidth = o.bandwidth;
       this.micGain = o.micGain ?? 1;
+      this.data = !!o.data;
       const r = this.micRate;
       // Voice: 300 Hz high-pass (biquad), clip, then FIR band limit.
       const w0 = TAU * 300 / r, al = Math.sin(w0) / Math.SQRT2, c = Math.cos(w0), a0 = 1 + al;
@@ -546,7 +549,7 @@
           this.env = this.key ? Math.min(1, this.env + this.rampStep) : Math.max(0, this.env - this.rampStep);
           re = 0.9 * (0.5 - 0.5 * Math.cos(Math.PI * this.env));
         } else {
-          this.band(this.voice(audio[i]));
+          this.band(this.data ? audio[i] : this.voice(audio[i]));
           if (mode === 'NFM') {
             this.phase += TAU * NFM_DEV * this.br / this.micRate;
             if (this.phase > Math.PI) this.phase -= TAU; else if (this.phase < -Math.PI) this.phase += TAU;

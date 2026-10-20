@@ -128,14 +128,14 @@
     </details>
 
     <details open>
-      <summary>Decoder</summary>
+      <summary>CW / FT8 / FT4</summary>
       <div class="row"><span class="lbl">Decoder</span>
         <select id="decoder">
           <option value="">Off</option><option value="CW">CW</option><option value="FT8">FT8</option><option value="FT4">FT4</option>
         </select></div>
       <div class="row" title="CW デコーダへの入力レベル。受信音量（AF）とは別"><span class="lbl">CW input</span>
         <input id="cwGain" type="range" min="-20" max="20" step="1"><span id="cwGainVal" class="num">0 dB</span></div>
-      <div class="row"><span class="hint">復調した音声を解読して、ウォーターフォールの下に表示します。CW は CW / USB / LSB、FT8・FT4 は USB で受信してください。FT8・FT4 は PC の時計が ±1 秒以内に合っている必要があります。</span></div>
+      <div class="row"><span class="hint">ウォーターフォールの下に送受信のパネルを開きます。受信は復調した音声を解読します（CW は CW / USB / LSB、FT8・FT4 は USB）。送信は Transmit で有効にしたうえで、CW は CW モード、FT8・FT4 は USB で行います。FT8・FT4 は PC の時計が ±1 秒以内に合っている必要があります。</span></div>
     </details>
 
     <details open>
@@ -208,27 +208,73 @@
         <canvas id="wf"></canvas>
         <canvas id="wfOverlay"></canvas>
       </div>
+      <div id="decSplitter" class="splitter" title="ドラッグで比率を変更（ダブルクリックで初期値）" hidden></div>
       <section id="decPane" hidden>
         <div class="dec-bar">
           <span class="dec-modes"><button data-dec="CW">CW</button><button data-dec="FT8">FT8</button><button data-dec="FT4">FT4</button></span>
-          <span class="dec-cw">
-            <span id="cwLed" class="led" title="信号を検出中"></span>
-            <span id="cwInfo" class="mono">--</span>
-            <button id="cwMode" title="欧文 / 和文">US</button>
-            <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
-          </span>
           <span class="dec-ft8">
             <span class="ft8-slot" title="周期の経過"><i id="ft8Bar"></i></span>
+            <span id="ft8TxTag" class="dtag tx" hidden>TX</span>
             <span id="ft8Info" class="mono">--</span>
-            <label class="chk"><input id="ft8Cq" type="checkbox"> CQ のみ</label>
           </span>
           <span class="spacer"></span>
-          <button id="decClr">Clear</button>
           <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
         </div>
-        <div id="cwText" class="dec-cw dec-text"></div>
-        <div class="dec-ft8 ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
-        <div id="ft8List" class="dec-ft8 ft8-list"></div>
+        <div class="dec-body dec-cw">
+          <div class="dec-col">
+            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span>
+              <label class="chk">WPM <input id="cwWpm" type="number" min="5" max="50" step="1"></label></div>
+            <textarea id="cwTxText" class="dec-box" placeholder="CQ CQ DE JA1XXX K" spellcheck="false"></textarea>
+            <div class="cw-keys" id="cwMem">
+              <button id="cwSend" title="テキストを送信">SEND</button>
+              <button id="cwStop" title="送信を止める">STOP</button>
+            </div>
+          </div>
+          <div class="dec-col">
+            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="信号を検出中"></span><span class="spacer"></span>
+              <span id="cwInfo" class="mono">--</span></div>
+            <div id="cwText" class="dec-box dec-text"></div>
+            <div class="cw-keys">
+              <button id="cwMode" title="欧文 / 和文">US</button>
+              <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
+              <button id="cwClr">CLR</button>
+            </div>
+          </div>
+        </div>
+        <div class="dec-body dec-ft8">
+          <div class="dec-col ft8-rx">
+            <div class="ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
+            <div id="ft8List" class="dec-box ft8-list" title="クリックでその局を DX CALL に設定、ダブルクリックで TX ON"></div>
+            <div class="cw-keys ft8-keys">
+              <button id="ft8Clr">CLR</button>
+              <label class="chk"><input id="ft8Cq" type="checkbox"> CQ・自局宛のみ</label>
+            </div>
+          </div>
+          <div class="dec-col ft8-tx">
+            <div class="ft8-txcfg">
+              <label>MY CALL<input type="text" id="ft8My" maxlength="11" spellcheck="false" placeholder="JA1XXX"></label>
+              <label>GRID<input type="text" id="ft8Grid" maxlength="6" spellcheck="false" placeholder="PM95"></label>
+              <label>DX CALL<input type="text" id="ft8Dx" maxlength="11" spellcheck="false"></label>
+              <label>RPT<input type="text" id="ft8Rpt" maxlength="3" spellcheck="false"></label>
+              <label>TX Hz<input type="number" id="ft8TxHz" min="200" max="3000" step="10"></label>
+              <label>LEVEL<input type="range" id="ft8Lvl" min="0.02" max="1" step="0.01"></label>
+            </div>
+            <div class="ft8-msgs" id="ft8Msgs">
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx1</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx2</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx3</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx4</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx5</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx6</b><input type="text" spellcheck="false" maxlength="37"></label>
+            </div>
+            <div class="cw-keys ft8-txkeys">
+              <button id="ft8Tx" title="選択中の Tx メッセージを、選んだ周期で送信します">TX ON</button>
+              <button id="ft8Halt" title="送信をすぐ止め、TX を OFF にします">HALT</button>
+              <button id="ft8Per" title="送信する周期（UTC 秒）">00/30</button>
+              <label class="chk"><input type="checkbox" id="ft8Auto"> AUTO SEQ</label>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
     <div id="rightbar">

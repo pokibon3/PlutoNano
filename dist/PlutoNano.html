@@ -241,39 +241,78 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 button.ptt { font-weight: 700; letter-spacing: 0.1em; padding: 10px 0; touch-action: none; user-select: none; }
 button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-shadow: 0 0 10px rgba(255, 91, 74, 0.6); }
 
-/* ---------------- decoder pane (under the waterfall) ---------------- */
-#decPane {
-  flex: none; height: 190px; display: flex; flex-direction: column; min-height: 0;
-  background: var(--panel); border-top: 1px solid var(--border);
+/* ---------------- CW / FT8 / FT4 panel (under the waterfall) ---------------- */
+#decSplitter {
+  position: relative; z-index: 5; height: 6px; flex: none; background: var(--panel); cursor: ns-resize;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); touch-action: none;
 }
+#decSplitter::before { content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
+#decSplitter::after {
+  content: ""; position: absolute; left: 50%; top: 1px; width: 40px; height: 2px; margin-left: -20px;
+  border-radius: 1px; background: var(--muted);
+}
+#decSplitter:hover, #decSplitter.drag { background: var(--accent-2); }
+#decSplitter[hidden] { display: none; }
+#wfWrap { min-height: 60px; }
+#decPane { flex: none; min-height: 120px; display: flex; flex-direction: column; background: var(--panel); }
 #decPane[hidden] { display: none; }
 #decPane[data-kind=cw] .dec-ft8, #decPane[data-kind=ft8] .dec-cw { display: none !important; }
 .dec-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--border); flex: none; }
-.dec-bar button { padding: 2px 8px; }
+.dec-bar button, .dec-body button { padding: 2px 8px; }
 .dec-bar button.icon { width: 26px; height: 24px; }
 .dec-modes { display: flex; gap: 2px; margin-right: 6px; }
-.dec-cw, .dec-ft8 { display: flex; align-items: center; gap: 6px; }
-.dec-bar .chk { display: flex; align-items: center; gap: 4px; }
-.dec-bar .mono { font-size: 12px; color: var(--muted); white-space: nowrap; }
-.led { width: 10px; height: 10px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--border); }
+.dec-bar .dec-ft8 { display: flex; align-items: center; gap: 6px; }
+.chk { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dec-bar .mono, .dec-sub .mono { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.dtag { font: 600 10px/1 ui-monospace, Menlo, monospace; padding: 2px 5px; border-radius: 3px; background: #1f3550; color: #9ccfff; letter-spacing: 1px; }
+.dtag.tx { background: #4a1714; color: #ff8a80; }
+.led { width: 10px; height: 10px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--border); flex: none; }
 .led.on { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 6px var(--ok); }
-.dec-text {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px; display: block;
-  font: 16px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; color: var(--text);
+
+.dec-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 6px 8px; }
+.dec-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.dec-sub { display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 2px; color: var(--muted); flex: none; }
+.dec-sub input[type=number] { width: 52px; }
+.dec-box {
+  flex: 1; min-height: 0; margin: 0; resize: none; border-radius: 4px; background: #0b0b0d; border: 1px solid var(--border);
+  color: var(--text); font: 15px/1.5 ui-monospace, Menlo, monospace; padding: 6px 8px; text-transform: uppercase;
 }
+.dec-text { overflow-y: auto; white-space: pre-wrap; word-break: break-all; display: block; }
+.cw-keys { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; flex: none; }
+.cw-keys button { height: 26px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cw-keys button.has { color: var(--accent); }
+
 .ft8-slot { width: 90px; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
 .ft8-slot i { display: block; height: 100%; width: 0; background: var(--accent); }
+.ft8-rx { flex: 3; }
+.ft8-tx { flex: 2; min-width: 300px; overflow-y: auto; }
 .ft8-head, .ft8-row {
-  display: grid; grid-template-columns: 64px 36px 40px 48px 1fr; gap: 8px; padding: 1px 10px;
+  display: grid; grid-template-columns: 62px 36px 40px 48px 1fr; gap: 8px;
   font: 12px/1.5 ui-monospace, Menlo, monospace;
 }
-.ft8-head { color: var(--muted); border-bottom: 1px solid var(--border); flex: none; }
+.ft8-head { color: var(--muted); padding: 0 9px; flex: none; }
 .ft8-head span:nth-child(-n+4), .ft8-row span:nth-child(-n+4) { text-align: right; }
-.ft8-list { flex: 1; min-height: 0; overflow-y: auto; display: block; }
+.ft8-head span:nth-child(1), .ft8-row span:nth-child(1) { text-align: left; }
+.ft8-list { padding: 2px 8px; overflow-y: auto; display: block; text-transform: none; font-size: 12px; user-select: text; }
 .ft8-row span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ft8-row.first { border-top: 1px solid var(--border); }
-.ft8-row.cq { color: var(--ok); }
-.ft8-row:hover { background: var(--panel-2); }
+.ft8-row.cq span:last-child { color: var(--ok); }
+.ft8-row.me span:last-child { color: #ff8a80; font-weight: 700; }
+.ft8-row.tx { color: #ffb36b; }
+.ft8-row:not(.tx) { cursor: pointer; }
+.ft8-row:not(.tx):hover { background: var(--panel-2); }
+.ft8-keys { grid-template-columns: 70px auto; justify-content: start; align-items: center; }
+.ft8-txcfg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; flex: none; }
+.ft8-txcfg label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); }
+.ft8-txcfg input { font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+.ft8-msgs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; flex: none; }
+.ft8-msg { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.ft8-msg b { width: 26px; font-weight: 600; }
+.ft8-msg input[type=radio] { accent-color: var(--accent); margin: 0; }
+.ft8-msg input[type=text] { flex: 1; font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; padding: 2px 6px; }
+.ft8-msg.sending input[type=text] { border-color: var(--danger); color: #ff8a80; }
+.ft8-txkeys { grid-template-columns: 70px 70px 70px auto; justify-content: start; align-items: center; }
+@media (max-width: 1000px) { .dec-body.dec-ft8 { flex-direction: column; overflow-y: auto; } .ft8-tx { min-width: 0; overflow: visible; } .ft8-rx { min-height: 140px; } }
 </style>
 </head>
 <body>
@@ -283,7 +322,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.6.0</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.7.0</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -397,14 +436,14 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
     </details>
 
     <details open>
-      <summary>Decoder</summary>
+      <summary>CW / FT8 / FT4</summary>
       <div class="row"><span class="lbl">Decoder</span>
         <select id="decoder">
           <option value="">Off</option><option value="CW">CW</option><option value="FT8">FT8</option><option value="FT4">FT4</option>
         </select></div>
       <div class="row" title="CW デコーダへの入力レベル。受信音量（AF）とは別"><span class="lbl">CW input</span>
         <input id="cwGain" type="range" min="-20" max="20" step="1"><span id="cwGainVal" class="num">0 dB</span></div>
-      <div class="row"><span class="hint">復調した音声を解読して、ウォーターフォールの下に表示します。CW は CW / USB / LSB、FT8・FT4 は USB で受信してください。FT8・FT4 は PC の時計が ±1 秒以内に合っている必要があります。</span></div>
+      <div class="row"><span class="hint">ウォーターフォールの下に送受信のパネルを開きます。受信は復調した音声を解読します（CW は CW / USB / LSB、FT8・FT4 は USB）。送信は Transmit で有効にしたうえで、CW は CW モード、FT8・FT4 は USB で行います。FT8・FT4 は PC の時計が ±1 秒以内に合っている必要があります。</span></div>
     </details>
 
     <details open>
@@ -477,27 +516,73 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
         <canvas id="wf"></canvas>
         <canvas id="wfOverlay"></canvas>
       </div>
+      <div id="decSplitter" class="splitter" title="ドラッグで比率を変更（ダブルクリックで初期値）" hidden></div>
       <section id="decPane" hidden>
         <div class="dec-bar">
           <span class="dec-modes"><button data-dec="CW">CW</button><button data-dec="FT8">FT8</button><button data-dec="FT4">FT4</button></span>
-          <span class="dec-cw">
-            <span id="cwLed" class="led" title="信号を検出中"></span>
-            <span id="cwInfo" class="mono">--</span>
-            <button id="cwMode" title="欧文 / 和文">US</button>
-            <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
-          </span>
           <span class="dec-ft8">
             <span class="ft8-slot" title="周期の経過"><i id="ft8Bar"></i></span>
+            <span id="ft8TxTag" class="dtag tx" hidden>TX</span>
             <span id="ft8Info" class="mono">--</span>
-            <label class="chk"><input id="ft8Cq" type="checkbox"> CQ のみ</label>
           </span>
           <span class="spacer"></span>
-          <button id="decClr">Clear</button>
           <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
         </div>
-        <div id="cwText" class="dec-cw dec-text"></div>
-        <div class="dec-ft8 ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
-        <div id="ft8List" class="dec-ft8 ft8-list"></div>
+        <div class="dec-body dec-cw">
+          <div class="dec-col">
+            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span>
+              <label class="chk">WPM <input id="cwWpm" type="number" min="5" max="50" step="1"></label></div>
+            <textarea id="cwTxText" class="dec-box" placeholder="CQ CQ DE JA1XXX K" spellcheck="false"></textarea>
+            <div class="cw-keys" id="cwMem">
+              <button id="cwSend" title="テキストを送信">SEND</button>
+              <button id="cwStop" title="送信を止める">STOP</button>
+            </div>
+          </div>
+          <div class="dec-col">
+            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="信号を検出中"></span><span class="spacer"></span>
+              <span id="cwInfo" class="mono">--</span></div>
+            <div id="cwText" class="dec-box dec-text"></div>
+            <div class="cw-keys">
+              <button id="cwMode" title="欧文 / 和文">US</button>
+              <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
+              <button id="cwClr">CLR</button>
+            </div>
+          </div>
+        </div>
+        <div class="dec-body dec-ft8">
+          <div class="dec-col ft8-rx">
+            <div class="ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
+            <div id="ft8List" class="dec-box ft8-list" title="クリックでその局を DX CALL に設定、ダブルクリックで TX ON"></div>
+            <div class="cw-keys ft8-keys">
+              <button id="ft8Clr">CLR</button>
+              <label class="chk"><input id="ft8Cq" type="checkbox"> CQ・自局宛のみ</label>
+            </div>
+          </div>
+          <div class="dec-col ft8-tx">
+            <div class="ft8-txcfg">
+              <label>MY CALL<input type="text" id="ft8My" maxlength="11" spellcheck="false" placeholder="JA1XXX"></label>
+              <label>GRID<input type="text" id="ft8Grid" maxlength="6" spellcheck="false" placeholder="PM95"></label>
+              <label>DX CALL<input type="text" id="ft8Dx" maxlength="11" spellcheck="false"></label>
+              <label>RPT<input type="text" id="ft8Rpt" maxlength="3" spellcheck="false"></label>
+              <label>TX Hz<input type="number" id="ft8TxHz" min="200" max="3000" step="10"></label>
+              <label>LEVEL<input type="range" id="ft8Lvl" min="0.02" max="1" step="0.01"></label>
+            </div>
+            <div class="ft8-msgs" id="ft8Msgs">
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx1</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx2</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx3</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx4</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx5</b><input type="text" spellcheck="false" maxlength="37"></label>
+              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx6</b><input type="text" spellcheck="false" maxlength="37"></label>
+            </div>
+            <div class="cw-keys ft8-txkeys">
+              <button id="ft8Tx" title="選択中の Tx メッセージを、選んだ周期で送信します">TX ON</button>
+              <button id="ft8Halt" title="送信をすぐ止め、TX を OFF にします">HALT</button>
+              <button id="ft8Per" title="送信する周期（UTC 秒）">00/30</button>
+              <label class="chk"><input type="checkbox" id="ft8Auto"> AUTO SEQ</label>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
     <div id="rightbar">
@@ -982,6 +1067,8 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
   // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
   // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto SDR Nano DAC.
   // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
+  // data: generated audio (FT8 / FT4) goes to the band filter as it is, without
+  // the voice high-pass and clipper.
   const NFM_DEV = 5e3;
   class Transmitter {
     constructor(o) {
@@ -991,6 +1078,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       this.mode = o.mode;
       this.bandwidth = o.bandwidth;
       this.micGain = o.micGain ?? 1;
+      this.data = !!o.data;
       const r = this.micRate;
       // Voice: 300 Hz high-pass (biquad), clip, then FIR band limit.
       const w0 = TAU * 300 / r, al = Math.sin(w0) / Math.SQRT2, c = Math.cos(w0), a0 = 1 + al;
@@ -1070,7 +1158,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
           this.env = this.key ? Math.min(1, this.env + this.rampStep) : Math.max(0, this.env - this.rampStep);
           re = 0.9 * (0.5 - 0.5 * Math.cos(Math.PI * this.env));
         } else {
-          this.band(this.voice(audio[i]));
+          this.band(this.data ? audio[i] : this.voice(audio[i]));
           if (mode === 'NFM') {
             this.phase += TAU * NFM_DEV * this.br / this.micRate;
             if (this.phase > Math.PI) this.phase -= TAU; else if (this.phase < -Math.PI) this.phase += TAU;
@@ -1696,6 +1784,8 @@ configure({});
   // Transmit chain: microphone audio at micRate (= fs / L) -> interleaved
   // I/Q Int16 at fs (12-bit, MSB-aligned) for the Pluto SDR Nano DAC.
   // mode: NFM | AM | USB | LSB | CW. CW ignores audio and follows key events.
+  // data: generated audio (FT8 / FT4) goes to the band filter as it is, without
+  // the voice high-pass and clipper.
   const NFM_DEV = 5e3;
   class Transmitter {
     constructor(o) {
@@ -1705,6 +1795,7 @@ configure({});
       this.mode = o.mode;
       this.bandwidth = o.bandwidth;
       this.micGain = o.micGain ?? 1;
+      this.data = !!o.data;
       const r = this.micRate;
       // Voice: 300 Hz high-pass (biquad), clip, then FIR band limit.
       const w0 = TAU * 300 / r, al = Math.sin(w0) / Math.SQRT2, c = Math.cos(w0), a0 = 1 + al;
@@ -1784,7 +1875,7 @@ configure({});
           this.env = this.key ? Math.min(1, this.env + this.rampStep) : Math.max(0, this.env - this.rampStep);
           re = 0.9 * (0.5 - 0.5 * Math.cos(Math.PI * this.env));
         } else {
-          this.band(this.voice(audio[i]));
+          this.band(this.data ? audio[i] : this.voice(audio[i]));
           if (mode === 'NFM') {
             this.phase += TAU * NFM_DEV * this.br / this.micRate;
             if (this.phase > Math.PI) this.phase -= TAU; else if (this.phase < -Math.PI) this.phase += TAU;
@@ -1819,7 +1910,7 @@ configure({});
   else root.DSP = api;
 })(typeof self !== 'undefined' ? self : globalThis);
 
-// TX worker: microphone audio (or CW key events) in, I/Q blocks out.
+// TX worker: microphone audio (or CW key events, or FT8 / FT4 audio) in, I/Q blocks out.
 // Loaded from a Blob together with dsp.js, so DSP is a global here.
 
 'use strict';
@@ -1835,6 +1926,9 @@ let fifo = new Float32Array(1 << 16), fr = 0, fill = 0, primed = false;
 // a fixed lead so they land ahead of what is already queued in the device.
 const KEY_LEAD = 0.08;
 let keyT0 = null, keyS0 = 0, pendingKeys = [];
+// Data (FT8 / FT4): one generated waveform at the modulator rate, played from
+// the next block on; silence before and after it.
+let wave = null, wavePos = 0;
 
 function push(x, n) {
   const cap = fifo.length;
@@ -1846,7 +1940,7 @@ function push(x, n) {
 }
 
 function onMic(chunk) {
-  if (!tx || tx.mode === 'CW') return;
+  if (!tx || tx.mode === 'CW' || tx.data) return;
   if (!resampler) { push(chunk, chunk.length); return; }
   const need = Math.ceil(chunk.length / resampler.ratio) + 4;
   if (rsBuf.length < need) rsBuf = new Float32Array(need);
@@ -1855,6 +1949,10 @@ function onMic(chunk) {
 
 function takeAudio(m) {
   const out = new Float32Array(m);
+  if (tx.data) {
+    if (wave) { const n = Math.min(m, wave.length - wavePos); if (n > 0) out.set(wave.subarray(wavePos, wavePos + n)); wavePos += m; }
+    return out;
+  }
   const target = Math.round(tx.micRate * FIFO_TARGET);
   if (!primed && fill >= target) primed = true;
   if (!primed) return out;
@@ -1881,6 +1979,7 @@ self.onmessage = (e) => {
       tx = new DSP.Transmitter(c);
       resampler = Math.abs(c.inRate - tx.micRate) > 0.5 ? new DSP.Resampler(c.inRate / tx.micRate) : null;
       fill = fr = 0; primed = false;
+      wave = null;
       keyT0 = null;
       for (const ev of pendingKeys) schedule(ev);
       pendingKeys = [];
@@ -1888,6 +1987,9 @@ self.onmessage = (e) => {
     }
     case 'gain':
       if (tx) tx.micGain = m.gain;
+      break;
+    case 'wave':
+      wave = m.s; wavePos = 0;
       break;
     case 'key':
       if (tx) schedule(m); else pendingKeys.push(m);
@@ -2707,7 +2809,8 @@ onmessage = async ({ data: m }) => {
   else root.Pluto = Pluto;
 })(typeof self !== 'undefined' ? self : globalThis);
 </script>
-<script>// CW / FT8 / FT4 decoders on the demodulated audio, taken from the FTX-1 Controller
+<script>// CW / FT8 / FT4 decoders on the demodulated audio, and the FT8 / FT4 message encoder
+// and waveform for transmitting, taken from the FTX-1 Controller
 // (js/cwdecoder.js, js/ft8.js). The cores are WebAssembly (src/cwdec/, src/ft8/); the
 // build inlines them as base64 and the worklet / worker sources as text, so nothing is fetched.
 
@@ -2879,7 +2982,39 @@ const PlutoDecoders = (function () {
   // ---------------- FT8 / FT4 ----------------
   // 12 kHz resampling in an AudioWorklet, ft8_lib (WebAssembly) in a Worker, slots aligned to the PC clock
   // (FT8: 15 s, UTC :00 / :15 / :30 / :45; FT4: 7.5 s). Decoding starts 14.4 s (FT8) / 6.3 s (FT4) into each slot.
+  // Transmit: the same Worker packs a message into tones; ft8Wave() makes the GFSK audio.
   const MODES = { FT8: { slot: 15000, decodeAt: 14400 }, FT4: { slot: 7500, decodeAt: 6300 } };
+
+  // Channel waveform as WSJT-X's gen_ft8wave / gen_ft4wave: Gaussian-smoothed frequency (BT 2 for FT8, 1 for FT4),
+  // continuous phase, tone spacing = symbol rate. FT8: 79 tones, raised-cosine ramps over 1/8 symbol at both ends.
+  // FT4: 105 tones whose first and last are ramp symbols (the decoder's encode_tones fills them with the neighbouring
+  // tone), ramped over the whole symbol.
+  function ft8Wave(tones, f0, rate, amp = 1, ft4 = false) {
+    const nsps = Math.round(rate * (ft4 ? 0.048 : 0.16)), n = tones.length * nsps;
+    const erf = (x) => { // Abramowitz-Stegun 7.1.26
+      const sg = Math.sign(x); x = Math.abs(x);
+      const t = 1 / (1 + 0.3275911 * x);
+      return sg * (1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x));
+    };
+    const K = Math.PI * Math.sqrt(2 / Math.log(2)), bt = ft4 ? 1 : 2, hpk = (2 * Math.PI) / nsps;
+    const pulse = new Float32Array(3 * nsps);
+    for (let i = 0; i < pulse.length; i++) { const t = i / nsps - 1.5; pulse[i] = (erf(K * bt * (t + 0.5)) - erf(K * bt * (t - 0.5))) / 2; }
+    // phase increment per sample; the first and last tones are extended by a dummy symbol on each side
+    const dphi = new Float64Array(n + 2 * nsps).fill((2 * Math.PI * f0) / rate);
+    tones.forEach((tone, s) => { for (let j = 0; j < 3 * nsps; j++) dphi[j + s * nsps] += hpk * tone * pulse[j]; });
+    for (let j = 0; j < 2 * nsps; j++) {
+      dphi[j] += hpk * pulse[j + nsps] * tones[0];
+      dphi[j + tones.length * nsps] += hpk * pulse[j] * tones[tones.length - 1];
+    }
+    const out = new Float32Array(n), nr = ft4 ? nsps : Math.round(nsps / 8);
+    let phi = 0;
+    for (let k = 0; k < n; k++) {
+      out[k] = amp * Math.sin(phi);
+      phi = (phi + dphi[k + nsps]) % (2 * Math.PI);
+    }
+    for (let i = 0; i < nr; i++) { const w = (1 - Math.cos((Math.PI * i) / nr)) / 2; out[i] *= w; out[n - 1 - i] *= w; }
+    return out;
+  }
 
   class Ft8Decoder extends EventTarget {
     constructor() {
@@ -2888,9 +3023,14 @@ const PlutoDecoders = (function () {
       this.worker = new Worker(blobUrl('ft8-worker-src'));
       const bytes = wasmBytes('ft8core-wasm');
       this.worker.postMessage({ type: 'wasm', bytes }, [bytes]);
-      this.worker.onmessage = ({ data: m }) => { if (m.type === 'decoded') this._decoded(m); };
+      this.worker.onmessage = ({ data: m }) => {
+        if (m.type === 'decoded') this._decoded(m);
+        else if (m.type === 'encoded') { this.encodes.get(m.id)?.(m); this.encodes.delete(m.id); }
+      };
+      this.encodes = new Map(); this.encId = 0;
       this.mode = 'FT8';
       this.cur = -1; this.collecting = false; this.decodedSlot = -1;
+      this.txSlot = -1; // a slot we transmit in is not decoded (the RX audio then holds our own signal)
       // ms from the air to the audio reaching the decoder (IQ block + playback buffer); slots are shifted by it
       this.delay = 0;
       this.timer = null;
@@ -2903,7 +3043,7 @@ const PlutoDecoders = (function () {
       if (!MODES[mode] || mode === this.mode) return;
       this.mode = mode;
       this.worker.postMessage({ type: 'init', ft4: this.ft4 });
-      this.cur = -1; this.collecting = false;
+      this.cur = -1; this.collecting = false; this.txSlot = -1;
     }
 
     async start(ctx, src) {
@@ -2926,6 +3066,11 @@ const PlutoDecoders = (function () {
       this.node = this.ctx = this.src = null;
       this.dispatchEvent(new Event('state'));
     }
+    // message text -> { rc, text (as received), tones (Uint8Array, null when rc != 0) }
+    encode(text) {
+      const id = ++this.encId;
+      return new Promise((res) => { this.encodes.set(id, res); this.worker.postMessage({ type: 'encode', id, text }); });
+    }
     // seconds into the current slot (for the progress bar)
     get secInSlot() { return ((Date.now() - this.delay) % this.slot) / 1000; }
 
@@ -2937,7 +3082,7 @@ const PlutoDecoders = (function () {
         this.collecting = t < 1000;
         this.worker.postMessage({ type: 'reset' });
       }
-      if (this.collecting && t >= MODES[this.mode].decodeAt && this.decodedSlot !== slot) {
+      if (this.collecting && t >= MODES[this.mode].decodeAt && this.decodedSlot !== slot && this.txSlot !== slot) {
         this.decodedSlot = slot;
         this.worker.postMessage({ type: 'decode', slot, mode: this.mode });
       }
@@ -2952,7 +3097,7 @@ const PlutoDecoders = (function () {
     }
   }
 
-  return { CwDecoder, Ft8Decoder, addWorklet };
+  return { CwDecoder, Ft8Decoder, ft8Wave, addWorklet };
 })();
 </script>
 <script>// Pluto SDR Nano — UI, stream control, rendering and wideband scan.
@@ -3006,7 +3151,8 @@ const PlutoDecoders = (function () {
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
-    audioOut: '', audioIn: '', decoder: '', cwGain: 0, ft8Cq: false,
+    audioOut: '', audioIn: '', decoder: '', decFrac: 0.4, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
+    ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
 
   // ---------------- settings ----------------
@@ -3938,7 +4084,7 @@ const PlutoDecoders = (function () {
   }
 
   function scopeTick(now) {
-    const micOn = tx.on && !!tx.mic && S.mode !== 'CW';
+    const micOn = tx.on && !!tx.mic && S.mode !== 'CW' && !tx.data;
     const live = !!audio && (state === 'live' || micOn);
     const pb = audioPassband();
     const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live, micOn].join();
@@ -4108,11 +4254,11 @@ const PlutoDecoders = (function () {
     const why = txBlocked();
     if (why) { toast(why); return false; }
     await ensureAudio();
-    if (S.mode !== 'CW') await ensureMic();
+    if (S.mode !== 'CW' && !tx.data) await ensureMic();
     const { fs, L, m } = txRates();
     txWorker.postMessage({
       type: 'config',
-      cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate },
+      cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate, data: !!tx.data },
     });
     // Report a device lost mid-way instead of failing on a null device.
     const p = pluto;
@@ -4206,6 +4352,8 @@ const PlutoDecoders = (function () {
   // PTT / CW key. In CW the key is passed to the modulator with its timing
   // and the transmitter drops out CW_HANG ms after the last key-up.
   function txKey(down, force) {
+    // The key during a CW text or an FT8 / FT4 transmission stops it; so does anything forcing TX off.
+    if ((down || force) && (cw.sending || ft.cur)) { digiStop(); if (down) return; }
     if (down) {
       const why = txBlocked();
       if (why) { toast(why); return; }
@@ -4234,6 +4382,7 @@ const PlutoDecoders = (function () {
     const why = txBlocked();
     if (why || (tx.on && (S.mode !== tx.mode || mode().bandwidth !== tx.bw))) {
       if (why) toast(why);
+      digiStop();
       tx.keyDown = false;
       sidetone(false);
       tx.want = false;
@@ -4269,7 +4418,7 @@ const PlutoDecoders = (function () {
     }
     S.txEnabled = on;
     $('txEnabled').checked = on;
-    if (!on) { tx.keyDown = false; sidetone(false); tx.want = false; txKick(); }
+    if (!on) { digiStop(); tx.keyDown = false; sidetone(false); tx.want = false; txKick(); }
     updateTx();
     save();
   }
@@ -4293,8 +4442,9 @@ const PlutoDecoders = (function () {
     const up = () => { if (tx.keyDown) txKey(false); };
     ptt.addEventListener('pointerup', up);
     ptt.addEventListener('pointercancel', up);
-    // Never keep transmitting when the window loses focus.
-    window.addEventListener('blur', () => { if (tx.keyDown || tx.want) txKey(false, true); });
+    // Never keep transmitting when the window loses focus. An FT8 / FT4 transmission is timed and
+    // ends by itself, so it goes on (hiding the window stops it).
+    window.addEventListener('blur', () => { if ((tx.keyDown || tx.want) && !ft.cur) txKey(false, true); });
     document.addEventListener('visibilitychange', () => { if (document.hidden && (tx.keyDown || tx.want)) txKey(false, true); });
     $('txEnabled').checked = S.txEnabled;
     $('txAtten').value = S.txAtten;
@@ -5354,7 +5504,7 @@ const PlutoDecoders = (function () {
       const plots = $('plots').getBoundingClientRect();
       const grab = e.clientY - (plots.top + S.specFrac * plots.height);
       const move = (ev) => {
-        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9);
+        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9 - (S.decoder ? S.decFrac + 0.05 : 0));
         specCanvas.style.height = S.specFrac * 100 + '%';
         resize();
       };
@@ -5397,25 +5547,32 @@ const PlutoDecoders = (function () {
     $('introClose').addEventListener('click', () => { $('intro').hidden = true; S.introSeen = true; save(); });
   }
 
-  // ---------------- decoders ----------------
-  // CW / FT8 / FT4 on the demodulated audio, tapped ahead of the volume control (decoders.js).
+  // ---------------- CW / FT8 / FT4 ----------------
+  // Receive: decoders on the demodulated audio, tapped ahead of the volume control (decoders.js).
+  // Transmit: CW text as key events on the CW modulator; FT8 / FT4 as generated audio on USB.
+  // The panel follows the FTX-1 Controller's.
   const cwDec = new PlutoDecoders.CwDecoder();
   const ft8Dec = new PlutoDecoders.Ft8Decoder();
   // Air to decoder: one IQ block (~30 ms) plus the playback buffer (120 ms). FT8 slots are shifted by it.
   ft8Dec.delay = 150;
   let decStarting = false;
-  let ft8Rows = [], ft8Last = '--';
   const isFt = (d) => d === 'FT8' || d === 'FT4';
 
   async function decSync() {
     const want = S.decoder;
     $('decoder').value = want;
-    $('decPane').hidden = !want;
+    $('decPane').hidden = $('decSplitter').hidden = !want;
     $('decPane').dataset.kind = want === 'CW' ? 'cw' : 'ft8';
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.classList.toggle('active', b.dataset.dec === want));
-    if (want !== 'CW') cwDec.stop();
-    if (!isFt(want)) ft8Dec.stop();
-    else if (ft8Dec.mode !== want) { ft8Dec.setMode(want); ft8Rows = []; ft8Last = '--'; drawFt8(); }
+    if (want !== 'CW') { cwDec.stop(); if (cw.sending) cwStop(); }
+    if (!isFt(want)) { ft8Dec.stop(); ftHalt(); }
+    else if (ft8Dec.mode !== want) {
+      // FT8 <-> FT4: TX stops, the list starts over (slot numbers differ)
+      ftHalt();
+      ft8Dec.setMode(want);
+      ft.rows = []; ft.last = '--'; ft.lastSlot = -1; ft.repeat = 0;
+      ftDraw(); ftDrawTx();
+    }
     if (!want || !audio || decStarting || (want === 'CW' ? cwDec.active : ft8Dec.active)) return;
     decStarting = true;
     try {
@@ -5441,35 +5598,289 @@ const PlutoDecoders = (function () {
     decSync();
   }
 
-  function drawFt8() {
+  // Stops a CW text or an FT8 / FT4 transmission (PTT key, time-out, window hidden, retune).
+  function digiStop() {
+    if (cw.sending) cwStop();
+    ftHalt();
+  }
+
+  // ---- CW text ----
+  const MORSE = {
+    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..',
+    M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-',
+    Y: '-.--', Z: '--..', 0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...',
+    8: '---..', 9: '----.', '.': '.-.-.-', ',': '--..--', '?': '..--..', '/': '-..-.', '=': '-...-', '+': '.-.-.', '-': '-....-',
+    '(': '-.--.', ')': '-.--.-', "'": '.----.', '"': '.-..-.', ':': '---...', ';': '-.-.-.', '@': '.--.-.', '!': '-.-.--',
+  };
+  const cw = { sending: false };
+  // Key-down intervals in seconds: dot = 1.2 / WPM, dash 3, gaps 1 / 3 / 7 dots. Unknown characters are skipped.
+  function morseMarks(text, wpm) {
+    const dot = 1.2 / wpm, marks = [];
+    let t = 0;
+    for (const w of text.split(' ')) {
+      let any = false;
+      for (const ch of w) {
+        const code = MORSE[ch];
+        if (!code) continue;
+        for (const el of code) { const d = el === '.' ? dot : 3 * dot; marks.push([t, t + d]); t += d + dot; }
+        t += 2 * dot;
+        any = true;
+      }
+      if (any) t += 4 * dot;
+    }
+    return { marks, end: marks.length ? marks[marks.length - 1][1] : 0 };
+  }
+
+  async function cwSend(text) {
+    text = text.toUpperCase().replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    if (S.mode !== 'CW') { toast('CW の送信は CW モードで行ってください'); return; }
+    const why = txBlocked();
+    if (why) { toast(why); return; }
+    const { marks, end } = morseMarks(text, S.cwWpm);
+    if (!marks.length) return;
+    // A text already on the air is replaced: wait until it has stopped.
+    if (cw.sending) {
+      cwStop();
+      for (let i = 0; i < 150 && (tx.on || tx.busy); i++) await new Promise((r) => setTimeout(r, 20));
+    }
+    cw.sending = true;
+    cwDraw();
+    clearTimeout(tx.hang);
+    if (!tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
+    tx.want = true;
+    await txKick();
+    while (tx.busy) await new Promise((r) => setTimeout(r, 20));
+    if (!cw.sending) return;
+    if (!tx.on) { cw.sending = false; cwDraw(); return; }
+    // Key events in performance.now() ms; the TX worker keeps their spacing. The sidetone follows
+    // the same timeline (the modulator adds about 80 ms).
+    const t0 = performance.now() + 20;
+    sidetone(false);
+    const g = tx.side.gain, c0 = audio.ctx.currentTime + 0.1, lvl = 0.15 * S.volume;
+    g.cancelScheduledValues(audio.ctx.currentTime);
+    for (const [a, b] of marks) {
+      txWorker.postMessage({ type: 'key', down: true, t: t0 + a * 1000 });
+      txWorker.postMessage({ type: 'key', down: false, t: t0 + b * 1000 });
+      g.setTargetAtTime(lvl, c0 + a, 0.003);
+      g.setTargetAtTime(0, c0 + b, 0.003);
+    }
+    tx.hang = setTimeout(() => {
+      cw.sending = false;
+      cwDraw();
+      if (!tx.keyDown) { tx.want = false; txKick(); }
+    }, 100 + end * 1000 + CW_HANG);
+  }
+
+  function cwStop() {
+    clearTimeout(tx.hang);
+    cw.sending = false;
+    if (tx.side) { tx.side.gain.cancelScheduledValues(audio.ctx.currentTime); tx.side.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.003); }
+    tx.keyDown = false;
+    tx.want = false;
+    txKick();
+    cwDraw();
+  }
+
+  function cwDraw() { $('cwSend').classList.toggle('active', cw.sending); }
+
+  // ---- FT8 / FT4 ----
+  // Tx1-Tx6 as in WSJT-X: 1 call with grid, 2 report, 3 R+report, 4 RR73, 5 73, 6 CQ.
+  // The period is the slot parity: 0 = :00/:30, 1 = :15/:45 (FT4: :00/:15, :07.5/:22.5). A transmission starts
+  // the transmitter at the slot start and the GFSK audio at 0.5 s (WSJT-X's DT = 0), and stops when it has played.
+  const ft = {
+    rows: [], last: '--', dx: '', rpt: '-10', sel: 5, msgs: [], on: false, cur: null, lastSlot: -1, lastText: '', repeat: 0,
+  };
+  const WATCHDOG = 10; // the same message this many times in a row turns TX off (as WSJT-X's Tx watchdog)
+  const TX_LATENCY = 60; // ms from the TX worker to the antenna (kernel buffers + one block)
+  const SL = () => ft8Dec.slot;
+  // per protocol: how late a transmission may still start / switch message, and when it must end
+  const TXT = () => (ft8Dec.ft4 ? { late: 1000, restart: 1200, end: 7000 } : { late: 2000, restart: 2500, end: 14000 });
+  const strip = (c) => (c || '').replace(/[<>]/g, '');
+  const isGrid = (x) => /^[A-R]{2}\d{2}$/.test(x) && x !== 'RR73';
+  const fmtRpt = (db) => { const v = clamp(Math.round(db), -30, 49); return `${v < 0 ? '-' : '+'}${String(Math.abs(v)).padStart(2, '0')}`; };
+  const utcOf = (slot) => new Date(slot * SL()).toISOString().slice(11, 19).replace(/:/g, '');
+  const toMe = (text) => !!S.ft8My && strip(text.split(' ')[0]) === S.ft8My;
+  const msgEls = [...document.querySelectorAll('#ft8Msgs input[type=text]')];
+  const selEls = [...document.querySelectorAll('#ft8Msgs input[type=radio]')];
+
+  function ftDraw() {
     const list = $('ft8List');
     const top = list.scrollTop;
-    const shown = S.ft8Cq ? ft8Rows.filter((r) => /^CQ\b/.test(r.text)) : ft8Rows;
+    const shown = S.ft8Cq ? ft.rows.filter((r) => r.tx || /^CQ\b/.test(r.text) || toMe(r.text)) : ft.rows;
     list.innerHTML = '';
     let lastUtc = null;
     for (const r of shown) {
       const el = document.createElement('div');
-      el.className = `ft8-row${/^CQ\b/.test(r.text) ? ' cq' : ''}${r.utc !== lastUtc ? ' first' : ''}`;
+      el.className = `ft8-row${r.tx ? ' tx' : toMe(r.text) ? ' me' : /^CQ\b/.test(r.text) ? ' cq' : ''}${r.utc !== lastUtc ? ' first' : ''}`;
       lastUtc = r.utc;
-      for (const t of [r.utc, r.snr > 0 ? `+${r.snr}` : r.snr, r.dt.toFixed(1), r.freq, r.text]) {
+      const cells = r.tx ? [r.utc, 'TX', '', r.freq, r.text] : [r.utc, r.snr > 0 ? `+${r.snr}` : r.snr, r.dt.toFixed(1), r.freq, r.text];
+      for (const t of cells) {
         const c = document.createElement('span');
         c.textContent = t;
         el.appendChild(c);
       }
+      if (!r.tx) {
+        // click: answer this station (DX call, report, the other period); double-click also turns TX on
+        el.addEventListener('click', () => ftPick(r));
+        el.addEventListener('dblclick', () => { ftPick(r); ftTxOn(true); });
+      }
       list.appendChild(el);
     }
     list.scrollTop = top;
+  }
+  const ftAddRows = (more) => { ft.rows = [...more, ...ft.rows].sort((a, b) => b.slot - a.slot).slice(0, 300); ftDraw(); }; // newest slot on top
+
+  function ftGen() {
+    const my = S.ft8My, dx = ft.dx, g = S.ft8Grid.slice(0, 4), r = ft.rpt;
+    ft.msgs = [`${dx} ${my} ${g}`, `${dx} ${my} ${r}`, `${dx} ${my} R${r}`, `${dx} ${my} RR73`, `${dx} ${my} 73`, `CQ ${my} ${g}`]
+      .map((m) => m.replace(/\s+/g, ' ').trim());
+    msgEls.forEach((el, i) => { el.value = ft.msgs[i]; });
+  }
+  function ftDrawTx() {
+    selEls.forEach((el, i) => { el.checked = ft.sel === i; });
+    msgEls.forEach((el, i) => el.parentElement.classList.toggle('sending', ft.cur?.sel === i));
+    $('ft8Dx').value = ft.dx;
+    $('ft8Rpt').value = ft.rpt;
+    $('ft8Tx').classList.toggle('active', ft.on);
+    $('ft8Per').textContent = ft8Dec.ft4 ? (S.ft8Per ? '07/22' : '00/15') : (S.ft8Per ? '15/45' : '00/30');
+    $('ft8TxTag').hidden = !ft.cur;
+  }
+  // the station a decoded message comes from (for CQ: the call before the grid)
+  function ftSender(text) {
+    const t = text.split(' ');
+    if (t[0] === 'CQ') { const g = isGrid(t[t.length - 1]); return strip(t[t.length - (g ? 2 : 1)]); }
+    return strip(t[1]);
+  }
+  // which Tx answers a message addressed to us: -1 = QSO over, null = not for us / not from our DX
+  function ftAnswer(text) {
+    const t = text.split(' ');
+    if (strip(t[0]) !== S.ft8My || !t[1]) return null;
+    const x = t[2] || '';
+    // another station: only a fresh call (grid or report) while we call CQ
+    if (strip(t[1]) !== ft.dx && (ft.sel !== 5 || !(x === '' || isGrid(x) || /^[+-]\d\d$/.test(x)))) return null;
+    if (x === 'RR73' || x === 'RRR') return 4;
+    if (x === '73') return -1;
+    if (/^R[+-]\d\d$/.test(x)) return 3;
+    if (/^[+-]\d\d$/.test(x)) return 2;
+    return 1;
+  }
+  function ftRespond(r) {
+    const n = ftAnswer(r.text);
+    if (n === null) return false;
+    if (strip(r.text.split(' ')[1]) !== ft.dx) { ft.dx = strip(r.text.split(' ')[1]); ft.rpt = fmtRpt(r.snr); ftGen(); }
+    if (n < 0) { ft.on = false; toast(`${ft.dx} との QSO 終了`, 'info'); } else ft.sel = n;
+    return true;
+  }
+  function ftPick(r) {
+    const call = ftSender(r.text);
+    if (!call || call === S.ft8My) return;
+    S.ft8Per = 1 - (r.slot % 2); save();
+    if (call !== ft.dx) { ft.dx = call; ft.rpt = fmtRpt(r.snr); }
+    ftGen();
+    if (!ftRespond(r)) ft.sel = 0;
+    ftDrawTx();
+  }
+  function ftAutoSeq({ slot, rows }) {
+    if (!S.ft8Auto || !ft.on || slot % 2 === S.ft8Per) return;
+    // a reply from our DX first, else (while calling CQ) the first station that answers
+    const mine = rows.filter((r) => ftAnswer(r.text) !== null);
+    const r = mine.find((x) => strip(x.text.split(' ')[1]) === ft.dx) || mine[0];
+    if (!r) return;
+    const before = ft.msgs[ft.sel];
+    ftRespond(r);
+    ftDrawTx();
+    // decoding ends after our slot has begun: switch the message if the transmission is still young (WSJT-X does too)
+    if (ft.cur && ft.on && ft.msgs[ft.sel] !== before && Date.now() % SL() < TXT().restart) ftRestart();
+  }
+
+  function ftProblem() {
+    if (!/^[A-Z0-9/]{3,11}$/.test(S.ft8My)) return `${ft8Dec.mode}: MY CALL を入力してください`;
+    if (S.mode !== 'USB') return `${ft8Dec.mode} の送信は USB で行ってください`;
+    return txBlocked() || null;
+  }
+  async function ftEncode(msg) {
+    const enc = await ft8Dec.encode(msg);
+    if (enc.rc) { ft.on = false; toast(`${ft8Dec.mode}: 送信できないメッセージです: ${msg}`); ftDrawTx(); return null; }
+    return enc;
+  }
+  // The waveform, led by silence up to 0.5 s into the slot (or now, when late), replaces what the TX worker plays.
+  function ftPlay(cur, tones) {
+    const { r } = txRates();
+    const w = PlutoDecoders.ft8Wave(tones, S.ft8TxHz, r, S.ft8Lvl, ft8Dec.ft4);
+    const lead = Math.max(0, cur.slot * SL() + 500 - TX_LATENCY - Date.now());
+    const s = new Float32Array(Math.round(lead / 1000 * r) + w.length);
+    s.set(w, s.length - w.length);
+    txWorker.postMessage({ type: 'wave', s }, [s.buffer]);
+    clearTimeout(cur.done);
+    cur.done = setTimeout(() => ftEnd(cur), lead + w.length / r * 1000 + TX_LATENCY + 100);
+  }
+  function ftEcho(cur) {
+    ft.rows = ft.rows.filter((r) => !(r.tx && r.slot === cur.slot));
+    ftAddRows([{ tx: true, slot: cur.slot, utc: utcOf(cur.slot), freq: S.ft8TxHz, text: cur.text }]);
+  }
+  async function ftBegin(slot) {
+    const err = ftProblem() || (tx.want && !tx.data ? '送信中のため開始できません' : null);
+    if (err) { ft.on = false; toast(err); ftDrawTx(); return; }
+    const sel = ft.sel, enc = await ftEncode(ft.msgs[sel]);
+    if (!enc || !ft.on || Math.floor(Date.now() / SL()) !== slot) return;
+    const cur = { slot, sel, text: enc.text, done: 0 };
+    ft.cur = cur;
+    ft8Dec.txSlot = slot;
+    // safety: never past the slot, whatever happens to the transmitter
+    cur.timer = setTimeout(() => ftEnd(cur), slot * SL() + TXT().end - Date.now());
+    tx.data = true;
+    tx.want = true;
+    await txKick();
+    while (tx.busy) await new Promise((r) => setTimeout(r, 20));
+    if (ft.cur !== cur) return;
+    if (!tx.on) { ft.on = false; ftEnd(cur, true); return; }
+    ftPlay(cur, enc.tones);
+    ftEcho(cur);
+    ftDrawTx();
+  }
+  async function ftRestart() {
+    const cur = ft.cur, sel = ft.sel, enc = await ftEncode(ft.msgs[sel]);
+    if (!enc || ft.cur !== cur || !tx.on) return;
+    Object.assign(cur, { sel, text: enc.text });
+    ftPlay(cur, enc.tones);
+    ftEcho(cur);
+    ftDrawTx();
+  }
+  function ftEnd(cur = ft.cur, halt = false) {
+    if (!cur || ft.cur !== cur) return;
+    ft.cur = null;
+    clearTimeout(cur.timer);
+    clearTimeout(cur.done);
+    tx.data = false;
+    tx.want = false;
+    txKick();
+    if (!halt) {
+      ft.repeat = cur.text === ft.lastText ? ft.repeat + 1 : 1;
+      ft.lastText = cur.text;
+      if (S.ft8Auto && cur.sel === 4) ft.on = false; // 73 sent: done
+      if (ft.repeat >= WATCHDOG && ft.on) { ft.on = false; ft.repeat = 0; toast(`${ft8Dec.mode}: 同じメッセージを ${WATCHDOG} 回送信したので TX を止めました`); }
+    }
+    ftDrawTx();
+  }
+  // TX off, and a transmission on the air stops now.
+  function ftHalt() {
+    ft.on = false;
+    if (ft.cur) ftEnd(ft.cur, true);
+    ftDrawTx();
+  }
+  function ftTxOn(on) {
+    ft.on = on;
+    if (on) { const err = ftProblem(); if (err) { ft.on = false; toast(err); } else ft.repeat = 0; }
+    ftDrawTx();
   }
 
   function bindDecoders() {
     $('decoder').addEventListener('change', (e) => setDecoder(e.target.value));
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.addEventListener('click', () => setDecoder(b.dataset.dec)));
     $('decOff').addEventListener('click', () => setDecoder(''));
-    $('decClr').addEventListener('click', () => {
-      if (S.decoder === 'CW') cwDec.clear();
-      else { ft8Rows = []; drawFt8(); }
-    });
 
+    // CW receive
     const cwText = $('cwText');
     cwDec.addEventListener('text', () => {
       const atBottom = cwText.scrollHeight - cwText.scrollTop - cwText.clientHeight < 30;
@@ -5478,19 +5889,75 @@ const PlutoDecoders = (function () {
     });
     $('cwMode').addEventListener('click', () => cwDec.toggleMode());
     $('cwTone').addEventListener('click', () => cwDec.cycleTone());
+    $('cwClr').addEventListener('click', () => cwDec.clear());
     const cwGainLabel = () => { $('cwGainVal').textContent = `${S.cwGain > 0 ? '+' : ''}${S.cwGain} dB`; };
     $('cwGain').value = S.cwGain;
     cwGainLabel();
     cwDec.setGain(S.cwGain);
     $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
 
-    ft8Dec.addEventListener('decoded', (e) => {
-      ft8Rows = [...e.detail.rows, ...ft8Rows].slice(0, 300); // newest slot on top
-      ft8Last = `${e.detail.utc} · ${e.detail.rows.length} 件`;
-      drawFt8();
+    // CW transmit: SEND / STOP and memories M1-M5 (click: send, Shift+click: store the text box)
+    $('cwSend').addEventListener('click', () => cwSend($('cwTxText').value));
+    $('cwStop').addEventListener('click', () => { if (cw.sending) cwStop(); });
+    $('cwWpm').value = S.cwWpm;
+    $('cwWpm').addEventListener('change', (e) => { S.cwWpm = clamp(Math.round(+e.target.value || 20), 5, 50); e.target.value = S.cwWpm; save(); });
+    S.cwMem.forEach((_, i) => {
+      const b = document.createElement('button');
+      b.textContent = `M${i + 1}`;
+      const upd = () => { b.classList.toggle('has', !!S.cwMem[i]); b.title = (S.cwMem[i] || '(空)') + '（Shift+クリックで登録）'; };
+      upd();
+      b.addEventListener('click', (e) => {
+        if (e.shiftKey) {
+          S.cwMem[i] = $('cwTxText').value.toUpperCase();
+          save();
+          upd();
+          toast(`M${i + 1} に登録しました`, 'info');
+        } else if (S.cwMem[i]) cwSend(S.cwMem[i]);
+      });
+      $('cwMem').appendChild(b);
     });
+
+    // FT8 / FT4 receive
+    ft8Dec.addEventListener('decoded', (e) => {
+      ft.last = `${e.detail.utc} · ${e.detail.rows.length} 件`;
+      ftAddRows(e.detail.rows);
+      ftAutoSeq(e.detail);
+    });
+    $('ft8Clr').addEventListener('click', () => { ft.rows = []; ftDraw(); });
     $('ft8Cq').checked = S.ft8Cq;
-    $('ft8Cq').addEventListener('change', (e) => { S.ft8Cq = e.target.checked; save(); drawFt8(); });
+    $('ft8Cq').addEventListener('change', (e) => { S.ft8Cq = e.target.checked; save(); ftDraw(); });
+
+    // FT8 / FT4 transmit
+    const bindTxt = (id, key, re) => {
+      const el = $(id);
+      el.value = S[key];
+      el.addEventListener('input', () => { S[key] = el.value.toUpperCase().replace(re, ''); save(); ftGen(); });
+      el.addEventListener('change', () => { el.value = S[key]; });
+    };
+    bindTxt('ft8My', 'ft8My', /[^A-Z0-9/]/g);
+    bindTxt('ft8Grid', 'ft8Grid', /[^A-Z0-9]/g);
+    $('ft8Dx').addEventListener('input', (e) => { ft.dx = e.target.value.toUpperCase().replace(/[^A-Z0-9/]/g, ''); ftGen(); });
+    $('ft8Rpt').addEventListener('input', (e) => { ft.rpt = e.target.value.trim(); ftGen(); });
+    $('ft8Dx').addEventListener('change', ftDrawTx);
+    $('ft8TxHz').value = S.ft8TxHz;
+    $('ft8TxHz').addEventListener('change', (e) => { S.ft8TxHz = clamp(Math.round(+e.target.value || 1500), 200, 3000); e.target.value = S.ft8TxHz; save(); });
+    $('ft8Lvl').value = S.ft8Lvl;
+    $('ft8Lvl').addEventListener('input', (e) => { S.ft8Lvl = +e.target.value; save(); });
+    $('ft8Auto').checked = S.ft8Auto;
+    $('ft8Auto').addEventListener('change', (e) => { S.ft8Auto = e.target.checked; save(); });
+    msgEls.forEach((el, i) => el.addEventListener('input', () => { ft.msgs[i] = el.value.toUpperCase(); }));
+    selEls.forEach((el, i) => el.addEventListener('change', () => { ft.sel = i; ftDrawTx(); }));
+    $('ft8Tx').addEventListener('click', () => ftTxOn(!ft.on));
+    $('ft8Halt').addEventListener('click', ftHalt);
+    $('ft8Per').addEventListener('click', () => { S.ft8Per = 1 - S.ft8Per; save(); ftDrawTx(); });
+    setInterval(() => {
+      const now = Date.now(), slot = Math.floor(now / SL());
+      if (!ft.on || ft.cur || ft.lastSlot === slot || slot % 2 !== S.ft8Per || now % SL() > TXT().late) return;
+      ft.lastSlot = slot;
+      ftBegin(slot);
+    }, 100);
+    ftGen();
+    ftDrawTx();
 
     // Status labels change at frame rate; only touch the DOM when they differ.
     let last = '';
@@ -5498,15 +5965,42 @@ const PlutoDecoders = (function () {
       const d = S.decoder;
       if (isFt(d)) $('ft8Bar').style.width = `${(ft8Dec.secInSlot * 1000 / ft8Dec.slot) * 100}%`;
       const warn = state !== 'live' ? '受信停止中' : isFt(d) && S.mode !== 'USB' ? 'USB で受信してください' : '';
-      const key = [d, warn, ft8Last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
+      const key = [d, warn, ft.last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
       if (key === last) return;
       last = key;
       $('cwMode').textContent = cwDec.jp ? 'JP' : 'US';
       $('cwTone').textContent = cwDec.toneAuto || !cwDec.toneHz ? 'AUTO' : `${cwDec.toneHz}Hz`;
       $('cwInfo').textContent = warn || (cwDec.active ? `${cwDec.wpm || '--'} WPM · ${cwDec.toneHz || '---'} Hz` : '--');
       $('cwLed').classList.toggle('on', cwDec.active && cwDec.gate);
-      $('ft8Info').textContent = warn || ft8Last;
+      $('ft8Info').textContent = warn || ft.last;
     }, 100);
+
+    // Waterfall / panel splitter: the panel's share of the plots, kept clear of the spectrum.
+    const split = $('decSplitter'), pane = $('decPane');
+    const place = () => { pane.style.height = S.decFrac * 100 + '%'; };
+    split.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      split.setPointerCapture(e.pointerId);
+      split.classList.add('drag');
+      const plots = $('plots').getBoundingClientRect();
+      const move = (ev) => {
+        S.decFrac = clamp((plots.bottom - ev.clientY) / plots.height, 0.15, 0.85 - S.specFrac);
+        place();
+      };
+      const up = () => {
+        split.classList.remove('drag');
+        split.removeEventListener('pointermove', move);
+        split.removeEventListener('pointerup', up);
+        split.removeEventListener('pointercancel', up);
+        save();
+      };
+      split.addEventListener('pointermove', move);
+      split.addEventListener('pointerup', up);
+      split.addEventListener('pointercancel', up);
+    });
+    split.addEventListener('dblclick', () => { S.decFrac = DEFAULTS.decFrac; place(); save(); });
+    S.decFrac = clamp(S.decFrac, 0.15, 0.85 - S.specFrac);
+    place();
     decSync();
   }
 

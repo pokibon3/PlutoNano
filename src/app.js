@@ -49,7 +49,8 @@
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
-    audioOut: '', audioIn: '', decoder: '', cwGain: 0, ft8Cq: false,
+    audioOut: '', audioIn: '', decoder: '', decFrac: 0.4, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
+    ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
 
   // ---------------- settings ----------------
@@ -981,7 +982,7 @@
   }
 
   function scopeTick(now) {
-    const micOn = tx.on && !!tx.mic && S.mode !== 'CW';
+    const micOn = tx.on && !!tx.mic && S.mode !== 'CW' && !tx.data;
     const live = !!audio && (state === 'live' || micOn);
     const pb = audioPassband();
     const key = [S.mode, mode().bandwidth, S.panelTheme, scopeCanvas.clientWidth, scopeCanvas.clientHeight, dpr, live, micOn].join();
@@ -1151,11 +1152,11 @@
     const why = txBlocked();
     if (why) { toast(why); return false; }
     await ensureAudio();
-    if (S.mode !== 'CW') await ensureMic();
+    if (S.mode !== 'CW' && !tx.data) await ensureMic();
     const { fs, L, m } = txRates();
     txWorker.postMessage({
       type: 'config',
-      cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate },
+      cfg: { fs, L, mode: S.mode, bandwidth: mode().bandwidth, micGain: 10 ** (S.micGain / 20), inRate: audio.ctx.sampleRate, data: !!tx.data },
     });
     // Report a device lost mid-way instead of failing on a null device.
     const p = pluto;
@@ -1249,6 +1250,8 @@
   // PTT / CW key. In CW the key is passed to the modulator with its timing
   // and the transmitter drops out CW_HANG ms after the last key-up.
   function txKey(down, force) {
+    // The key during a CW text or an FT8 / FT4 transmission stops it; so does anything forcing TX off.
+    if ((down || force) && (cw.sending || ft.cur)) { digiStop(); if (down) return; }
     if (down) {
       const why = txBlocked();
       if (why) { toast(why); return; }
@@ -1277,6 +1280,7 @@
     const why = txBlocked();
     if (why || (tx.on && (S.mode !== tx.mode || mode().bandwidth !== tx.bw))) {
       if (why) toast(why);
+      digiStop();
       tx.keyDown = false;
       sidetone(false);
       tx.want = false;
@@ -1312,7 +1316,7 @@
     }
     S.txEnabled = on;
     $('txEnabled').checked = on;
-    if (!on) { tx.keyDown = false; sidetone(false); tx.want = false; txKick(); }
+    if (!on) { digiStop(); tx.keyDown = false; sidetone(false); tx.want = false; txKick(); }
     updateTx();
     save();
   }
@@ -1336,8 +1340,9 @@
     const up = () => { if (tx.keyDown) txKey(false); };
     ptt.addEventListener('pointerup', up);
     ptt.addEventListener('pointercancel', up);
-    // Never keep transmitting when the window loses focus.
-    window.addEventListener('blur', () => { if (tx.keyDown || tx.want) txKey(false, true); });
+    // Never keep transmitting when the window loses focus. An FT8 / FT4 transmission is timed and
+    // ends by itself, so it goes on (hiding the window stops it).
+    window.addEventListener('blur', () => { if ((tx.keyDown || tx.want) && !ft.cur) txKey(false, true); });
     document.addEventListener('visibilitychange', () => { if (document.hidden && (tx.keyDown || tx.want)) txKey(false, true); });
     $('txEnabled').checked = S.txEnabled;
     $('txAtten').value = S.txAtten;
@@ -2397,7 +2402,7 @@
       const plots = $('plots').getBoundingClientRect();
       const grab = e.clientY - (plots.top + S.specFrac * plots.height);
       const move = (ev) => {
-        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9);
+        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9 - (S.decoder ? S.decFrac + 0.05 : 0));
         specCanvas.style.height = S.specFrac * 100 + '%';
         resize();
       };
@@ -2440,25 +2445,32 @@
     $('introClose').addEventListener('click', () => { $('intro').hidden = true; S.introSeen = true; save(); });
   }
 
-  // ---------------- decoders ----------------
-  // CW / FT8 / FT4 on the demodulated audio, tapped ahead of the volume control (decoders.js).
+  // ---------------- CW / FT8 / FT4 ----------------
+  // Receive: decoders on the demodulated audio, tapped ahead of the volume control (decoders.js).
+  // Transmit: CW text as key events on the CW modulator; FT8 / FT4 as generated audio on USB.
+  // The panel follows the FTX-1 Controller's.
   const cwDec = new PlutoDecoders.CwDecoder();
   const ft8Dec = new PlutoDecoders.Ft8Decoder();
   // Air to decoder: one IQ block (~30 ms) plus the playback buffer (120 ms). FT8 slots are shifted by it.
   ft8Dec.delay = 150;
   let decStarting = false;
-  let ft8Rows = [], ft8Last = '--';
   const isFt = (d) => d === 'FT8' || d === 'FT4';
 
   async function decSync() {
     const want = S.decoder;
     $('decoder').value = want;
-    $('decPane').hidden = !want;
+    $('decPane').hidden = $('decSplitter').hidden = !want;
     $('decPane').dataset.kind = want === 'CW' ? 'cw' : 'ft8';
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.classList.toggle('active', b.dataset.dec === want));
-    if (want !== 'CW') cwDec.stop();
-    if (!isFt(want)) ft8Dec.stop();
-    else if (ft8Dec.mode !== want) { ft8Dec.setMode(want); ft8Rows = []; ft8Last = '--'; drawFt8(); }
+    if (want !== 'CW') { cwDec.stop(); if (cw.sending) cwStop(); }
+    if (!isFt(want)) { ft8Dec.stop(); ftHalt(); }
+    else if (ft8Dec.mode !== want) {
+      // FT8 <-> FT4: TX stops, the list starts over (slot numbers differ)
+      ftHalt();
+      ft8Dec.setMode(want);
+      ft.rows = []; ft.last = '--'; ft.lastSlot = -1; ft.repeat = 0;
+      ftDraw(); ftDrawTx();
+    }
     if (!want || !audio || decStarting || (want === 'CW' ? cwDec.active : ft8Dec.active)) return;
     decStarting = true;
     try {
@@ -2484,35 +2496,289 @@
     decSync();
   }
 
-  function drawFt8() {
+  // Stops a CW text or an FT8 / FT4 transmission (PTT key, time-out, window hidden, retune).
+  function digiStop() {
+    if (cw.sending) cwStop();
+    ftHalt();
+  }
+
+  // ---- CW text ----
+  const MORSE = {
+    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..',
+    M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-',
+    Y: '-.--', Z: '--..', 0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...',
+    8: '---..', 9: '----.', '.': '.-.-.-', ',': '--..--', '?': '..--..', '/': '-..-.', '=': '-...-', '+': '.-.-.', '-': '-....-',
+    '(': '-.--.', ')': '-.--.-', "'": '.----.', '"': '.-..-.', ':': '---...', ';': '-.-.-.', '@': '.--.-.', '!': '-.-.--',
+  };
+  const cw = { sending: false };
+  // Key-down intervals in seconds: dot = 1.2 / WPM, dash 3, gaps 1 / 3 / 7 dots. Unknown characters are skipped.
+  function morseMarks(text, wpm) {
+    const dot = 1.2 / wpm, marks = [];
+    let t = 0;
+    for (const w of text.split(' ')) {
+      let any = false;
+      for (const ch of w) {
+        const code = MORSE[ch];
+        if (!code) continue;
+        for (const el of code) { const d = el === '.' ? dot : 3 * dot; marks.push([t, t + d]); t += d + dot; }
+        t += 2 * dot;
+        any = true;
+      }
+      if (any) t += 4 * dot;
+    }
+    return { marks, end: marks.length ? marks[marks.length - 1][1] : 0 };
+  }
+
+  async function cwSend(text) {
+    text = text.toUpperCase().replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    if (S.mode !== 'CW') { toast('CW の送信は CW モードで行ってください'); return; }
+    const why = txBlocked();
+    if (why) { toast(why); return; }
+    const { marks, end } = morseMarks(text, S.cwWpm);
+    if (!marks.length) return;
+    // A text already on the air is replaced: wait until it has stopped.
+    if (cw.sending) {
+      cwStop();
+      for (let i = 0; i < 150 && (tx.on || tx.busy); i++) await new Promise((r) => setTimeout(r, 20));
+    }
+    cw.sending = true;
+    cwDraw();
+    clearTimeout(tx.hang);
+    if (!tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
+    tx.want = true;
+    await txKick();
+    while (tx.busy) await new Promise((r) => setTimeout(r, 20));
+    if (!cw.sending) return;
+    if (!tx.on) { cw.sending = false; cwDraw(); return; }
+    // Key events in performance.now() ms; the TX worker keeps their spacing. The sidetone follows
+    // the same timeline (the modulator adds about 80 ms).
+    const t0 = performance.now() + 20;
+    sidetone(false);
+    const g = tx.side.gain, c0 = audio.ctx.currentTime + 0.1, lvl = 0.15 * S.volume;
+    g.cancelScheduledValues(audio.ctx.currentTime);
+    for (const [a, b] of marks) {
+      txWorker.postMessage({ type: 'key', down: true, t: t0 + a * 1000 });
+      txWorker.postMessage({ type: 'key', down: false, t: t0 + b * 1000 });
+      g.setTargetAtTime(lvl, c0 + a, 0.003);
+      g.setTargetAtTime(0, c0 + b, 0.003);
+    }
+    tx.hang = setTimeout(() => {
+      cw.sending = false;
+      cwDraw();
+      if (!tx.keyDown) { tx.want = false; txKick(); }
+    }, 100 + end * 1000 + CW_HANG);
+  }
+
+  function cwStop() {
+    clearTimeout(tx.hang);
+    cw.sending = false;
+    if (tx.side) { tx.side.gain.cancelScheduledValues(audio.ctx.currentTime); tx.side.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.003); }
+    tx.keyDown = false;
+    tx.want = false;
+    txKick();
+    cwDraw();
+  }
+
+  function cwDraw() { $('cwSend').classList.toggle('active', cw.sending); }
+
+  // ---- FT8 / FT4 ----
+  // Tx1-Tx6 as in WSJT-X: 1 call with grid, 2 report, 3 R+report, 4 RR73, 5 73, 6 CQ.
+  // The period is the slot parity: 0 = :00/:30, 1 = :15/:45 (FT4: :00/:15, :07.5/:22.5). A transmission starts
+  // the transmitter at the slot start and the GFSK audio at 0.5 s (WSJT-X's DT = 0), and stops when it has played.
+  const ft = {
+    rows: [], last: '--', dx: '', rpt: '-10', sel: 5, msgs: [], on: false, cur: null, lastSlot: -1, lastText: '', repeat: 0,
+  };
+  const WATCHDOG = 10; // the same message this many times in a row turns TX off (as WSJT-X's Tx watchdog)
+  const TX_LATENCY = 60; // ms from the TX worker to the antenna (kernel buffers + one block)
+  const SL = () => ft8Dec.slot;
+  // per protocol: how late a transmission may still start / switch message, and when it must end
+  const TXT = () => (ft8Dec.ft4 ? { late: 1000, restart: 1200, end: 7000 } : { late: 2000, restart: 2500, end: 14000 });
+  const strip = (c) => (c || '').replace(/[<>]/g, '');
+  const isGrid = (x) => /^[A-R]{2}\d{2}$/.test(x) && x !== 'RR73';
+  const fmtRpt = (db) => { const v = clamp(Math.round(db), -30, 49); return `${v < 0 ? '-' : '+'}${String(Math.abs(v)).padStart(2, '0')}`; };
+  const utcOf = (slot) => new Date(slot * SL()).toISOString().slice(11, 19).replace(/:/g, '');
+  const toMe = (text) => !!S.ft8My && strip(text.split(' ')[0]) === S.ft8My;
+  const msgEls = [...document.querySelectorAll('#ft8Msgs input[type=text]')];
+  const selEls = [...document.querySelectorAll('#ft8Msgs input[type=radio]')];
+
+  function ftDraw() {
     const list = $('ft8List');
     const top = list.scrollTop;
-    const shown = S.ft8Cq ? ft8Rows.filter((r) => /^CQ\b/.test(r.text)) : ft8Rows;
+    const shown = S.ft8Cq ? ft.rows.filter((r) => r.tx || /^CQ\b/.test(r.text) || toMe(r.text)) : ft.rows;
     list.innerHTML = '';
     let lastUtc = null;
     for (const r of shown) {
       const el = document.createElement('div');
-      el.className = `ft8-row${/^CQ\b/.test(r.text) ? ' cq' : ''}${r.utc !== lastUtc ? ' first' : ''}`;
+      el.className = `ft8-row${r.tx ? ' tx' : toMe(r.text) ? ' me' : /^CQ\b/.test(r.text) ? ' cq' : ''}${r.utc !== lastUtc ? ' first' : ''}`;
       lastUtc = r.utc;
-      for (const t of [r.utc, r.snr > 0 ? `+${r.snr}` : r.snr, r.dt.toFixed(1), r.freq, r.text]) {
+      const cells = r.tx ? [r.utc, 'TX', '', r.freq, r.text] : [r.utc, r.snr > 0 ? `+${r.snr}` : r.snr, r.dt.toFixed(1), r.freq, r.text];
+      for (const t of cells) {
         const c = document.createElement('span');
         c.textContent = t;
         el.appendChild(c);
       }
+      if (!r.tx) {
+        // click: answer this station (DX call, report, the other period); double-click also turns TX on
+        el.addEventListener('click', () => ftPick(r));
+        el.addEventListener('dblclick', () => { ftPick(r); ftTxOn(true); });
+      }
       list.appendChild(el);
     }
     list.scrollTop = top;
+  }
+  const ftAddRows = (more) => { ft.rows = [...more, ...ft.rows].sort((a, b) => b.slot - a.slot).slice(0, 300); ftDraw(); }; // newest slot on top
+
+  function ftGen() {
+    const my = S.ft8My, dx = ft.dx, g = S.ft8Grid.slice(0, 4), r = ft.rpt;
+    ft.msgs = [`${dx} ${my} ${g}`, `${dx} ${my} ${r}`, `${dx} ${my} R${r}`, `${dx} ${my} RR73`, `${dx} ${my} 73`, `CQ ${my} ${g}`]
+      .map((m) => m.replace(/\s+/g, ' ').trim());
+    msgEls.forEach((el, i) => { el.value = ft.msgs[i]; });
+  }
+  function ftDrawTx() {
+    selEls.forEach((el, i) => { el.checked = ft.sel === i; });
+    msgEls.forEach((el, i) => el.parentElement.classList.toggle('sending', ft.cur?.sel === i));
+    $('ft8Dx').value = ft.dx;
+    $('ft8Rpt').value = ft.rpt;
+    $('ft8Tx').classList.toggle('active', ft.on);
+    $('ft8Per').textContent = ft8Dec.ft4 ? (S.ft8Per ? '07/22' : '00/15') : (S.ft8Per ? '15/45' : '00/30');
+    $('ft8TxTag').hidden = !ft.cur;
+  }
+  // the station a decoded message comes from (for CQ: the call before the grid)
+  function ftSender(text) {
+    const t = text.split(' ');
+    if (t[0] === 'CQ') { const g = isGrid(t[t.length - 1]); return strip(t[t.length - (g ? 2 : 1)]); }
+    return strip(t[1]);
+  }
+  // which Tx answers a message addressed to us: -1 = QSO over, null = not for us / not from our DX
+  function ftAnswer(text) {
+    const t = text.split(' ');
+    if (strip(t[0]) !== S.ft8My || !t[1]) return null;
+    const x = t[2] || '';
+    // another station: only a fresh call (grid or report) while we call CQ
+    if (strip(t[1]) !== ft.dx && (ft.sel !== 5 || !(x === '' || isGrid(x) || /^[+-]\d\d$/.test(x)))) return null;
+    if (x === 'RR73' || x === 'RRR') return 4;
+    if (x === '73') return -1;
+    if (/^R[+-]\d\d$/.test(x)) return 3;
+    if (/^[+-]\d\d$/.test(x)) return 2;
+    return 1;
+  }
+  function ftRespond(r) {
+    const n = ftAnswer(r.text);
+    if (n === null) return false;
+    if (strip(r.text.split(' ')[1]) !== ft.dx) { ft.dx = strip(r.text.split(' ')[1]); ft.rpt = fmtRpt(r.snr); ftGen(); }
+    if (n < 0) { ft.on = false; toast(`${ft.dx} との QSO 終了`, 'info'); } else ft.sel = n;
+    return true;
+  }
+  function ftPick(r) {
+    const call = ftSender(r.text);
+    if (!call || call === S.ft8My) return;
+    S.ft8Per = 1 - (r.slot % 2); save();
+    if (call !== ft.dx) { ft.dx = call; ft.rpt = fmtRpt(r.snr); }
+    ftGen();
+    if (!ftRespond(r)) ft.sel = 0;
+    ftDrawTx();
+  }
+  function ftAutoSeq({ slot, rows }) {
+    if (!S.ft8Auto || !ft.on || slot % 2 === S.ft8Per) return;
+    // a reply from our DX first, else (while calling CQ) the first station that answers
+    const mine = rows.filter((r) => ftAnswer(r.text) !== null);
+    const r = mine.find((x) => strip(x.text.split(' ')[1]) === ft.dx) || mine[0];
+    if (!r) return;
+    const before = ft.msgs[ft.sel];
+    ftRespond(r);
+    ftDrawTx();
+    // decoding ends after our slot has begun: switch the message if the transmission is still young (WSJT-X does too)
+    if (ft.cur && ft.on && ft.msgs[ft.sel] !== before && Date.now() % SL() < TXT().restart) ftRestart();
+  }
+
+  function ftProblem() {
+    if (!/^[A-Z0-9/]{3,11}$/.test(S.ft8My)) return `${ft8Dec.mode}: MY CALL を入力してください`;
+    if (S.mode !== 'USB') return `${ft8Dec.mode} の送信は USB で行ってください`;
+    return txBlocked() || null;
+  }
+  async function ftEncode(msg) {
+    const enc = await ft8Dec.encode(msg);
+    if (enc.rc) { ft.on = false; toast(`${ft8Dec.mode}: 送信できないメッセージです: ${msg}`); ftDrawTx(); return null; }
+    return enc;
+  }
+  // The waveform, led by silence up to 0.5 s into the slot (or now, when late), replaces what the TX worker plays.
+  function ftPlay(cur, tones) {
+    const { r } = txRates();
+    const w = PlutoDecoders.ft8Wave(tones, S.ft8TxHz, r, S.ft8Lvl, ft8Dec.ft4);
+    const lead = Math.max(0, cur.slot * SL() + 500 - TX_LATENCY - Date.now());
+    const s = new Float32Array(Math.round(lead / 1000 * r) + w.length);
+    s.set(w, s.length - w.length);
+    txWorker.postMessage({ type: 'wave', s }, [s.buffer]);
+    clearTimeout(cur.done);
+    cur.done = setTimeout(() => ftEnd(cur), lead + w.length / r * 1000 + TX_LATENCY + 100);
+  }
+  function ftEcho(cur) {
+    ft.rows = ft.rows.filter((r) => !(r.tx && r.slot === cur.slot));
+    ftAddRows([{ tx: true, slot: cur.slot, utc: utcOf(cur.slot), freq: S.ft8TxHz, text: cur.text }]);
+  }
+  async function ftBegin(slot) {
+    const err = ftProblem() || (tx.want && !tx.data ? '送信中のため開始できません' : null);
+    if (err) { ft.on = false; toast(err); ftDrawTx(); return; }
+    const sel = ft.sel, enc = await ftEncode(ft.msgs[sel]);
+    if (!enc || !ft.on || Math.floor(Date.now() / SL()) !== slot) return;
+    const cur = { slot, sel, text: enc.text, done: 0 };
+    ft.cur = cur;
+    ft8Dec.txSlot = slot;
+    // safety: never past the slot, whatever happens to the transmitter
+    cur.timer = setTimeout(() => ftEnd(cur), slot * SL() + TXT().end - Date.now());
+    tx.data = true;
+    tx.want = true;
+    await txKick();
+    while (tx.busy) await new Promise((r) => setTimeout(r, 20));
+    if (ft.cur !== cur) return;
+    if (!tx.on) { ft.on = false; ftEnd(cur, true); return; }
+    ftPlay(cur, enc.tones);
+    ftEcho(cur);
+    ftDrawTx();
+  }
+  async function ftRestart() {
+    const cur = ft.cur, sel = ft.sel, enc = await ftEncode(ft.msgs[sel]);
+    if (!enc || ft.cur !== cur || !tx.on) return;
+    Object.assign(cur, { sel, text: enc.text });
+    ftPlay(cur, enc.tones);
+    ftEcho(cur);
+    ftDrawTx();
+  }
+  function ftEnd(cur = ft.cur, halt = false) {
+    if (!cur || ft.cur !== cur) return;
+    ft.cur = null;
+    clearTimeout(cur.timer);
+    clearTimeout(cur.done);
+    tx.data = false;
+    tx.want = false;
+    txKick();
+    if (!halt) {
+      ft.repeat = cur.text === ft.lastText ? ft.repeat + 1 : 1;
+      ft.lastText = cur.text;
+      if (S.ft8Auto && cur.sel === 4) ft.on = false; // 73 sent: done
+      if (ft.repeat >= WATCHDOG && ft.on) { ft.on = false; ft.repeat = 0; toast(`${ft8Dec.mode}: 同じメッセージを ${WATCHDOG} 回送信したので TX を止めました`); }
+    }
+    ftDrawTx();
+  }
+  // TX off, and a transmission on the air stops now.
+  function ftHalt() {
+    ft.on = false;
+    if (ft.cur) ftEnd(ft.cur, true);
+    ftDrawTx();
+  }
+  function ftTxOn(on) {
+    ft.on = on;
+    if (on) { const err = ftProblem(); if (err) { ft.on = false; toast(err); } else ft.repeat = 0; }
+    ftDrawTx();
   }
 
   function bindDecoders() {
     $('decoder').addEventListener('change', (e) => setDecoder(e.target.value));
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.addEventListener('click', () => setDecoder(b.dataset.dec)));
     $('decOff').addEventListener('click', () => setDecoder(''));
-    $('decClr').addEventListener('click', () => {
-      if (S.decoder === 'CW') cwDec.clear();
-      else { ft8Rows = []; drawFt8(); }
-    });
 
+    // CW receive
     const cwText = $('cwText');
     cwDec.addEventListener('text', () => {
       const atBottom = cwText.scrollHeight - cwText.scrollTop - cwText.clientHeight < 30;
@@ -2521,19 +2787,75 @@
     });
     $('cwMode').addEventListener('click', () => cwDec.toggleMode());
     $('cwTone').addEventListener('click', () => cwDec.cycleTone());
+    $('cwClr').addEventListener('click', () => cwDec.clear());
     const cwGainLabel = () => { $('cwGainVal').textContent = `${S.cwGain > 0 ? '+' : ''}${S.cwGain} dB`; };
     $('cwGain').value = S.cwGain;
     cwGainLabel();
     cwDec.setGain(S.cwGain);
     $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
 
-    ft8Dec.addEventListener('decoded', (e) => {
-      ft8Rows = [...e.detail.rows, ...ft8Rows].slice(0, 300); // newest slot on top
-      ft8Last = `${e.detail.utc} · ${e.detail.rows.length} 件`;
-      drawFt8();
+    // CW transmit: SEND / STOP and memories M1-M5 (click: send, Shift+click: store the text box)
+    $('cwSend').addEventListener('click', () => cwSend($('cwTxText').value));
+    $('cwStop').addEventListener('click', () => { if (cw.sending) cwStop(); });
+    $('cwWpm').value = S.cwWpm;
+    $('cwWpm').addEventListener('change', (e) => { S.cwWpm = clamp(Math.round(+e.target.value || 20), 5, 50); e.target.value = S.cwWpm; save(); });
+    S.cwMem.forEach((_, i) => {
+      const b = document.createElement('button');
+      b.textContent = `M${i + 1}`;
+      const upd = () => { b.classList.toggle('has', !!S.cwMem[i]); b.title = (S.cwMem[i] || '(空)') + '（Shift+クリックで登録）'; };
+      upd();
+      b.addEventListener('click', (e) => {
+        if (e.shiftKey) {
+          S.cwMem[i] = $('cwTxText').value.toUpperCase();
+          save();
+          upd();
+          toast(`M${i + 1} に登録しました`, 'info');
+        } else if (S.cwMem[i]) cwSend(S.cwMem[i]);
+      });
+      $('cwMem').appendChild(b);
     });
+
+    // FT8 / FT4 receive
+    ft8Dec.addEventListener('decoded', (e) => {
+      ft.last = `${e.detail.utc} · ${e.detail.rows.length} 件`;
+      ftAddRows(e.detail.rows);
+      ftAutoSeq(e.detail);
+    });
+    $('ft8Clr').addEventListener('click', () => { ft.rows = []; ftDraw(); });
     $('ft8Cq').checked = S.ft8Cq;
-    $('ft8Cq').addEventListener('change', (e) => { S.ft8Cq = e.target.checked; save(); drawFt8(); });
+    $('ft8Cq').addEventListener('change', (e) => { S.ft8Cq = e.target.checked; save(); ftDraw(); });
+
+    // FT8 / FT4 transmit
+    const bindTxt = (id, key, re) => {
+      const el = $(id);
+      el.value = S[key];
+      el.addEventListener('input', () => { S[key] = el.value.toUpperCase().replace(re, ''); save(); ftGen(); });
+      el.addEventListener('change', () => { el.value = S[key]; });
+    };
+    bindTxt('ft8My', 'ft8My', /[^A-Z0-9/]/g);
+    bindTxt('ft8Grid', 'ft8Grid', /[^A-Z0-9]/g);
+    $('ft8Dx').addEventListener('input', (e) => { ft.dx = e.target.value.toUpperCase().replace(/[^A-Z0-9/]/g, ''); ftGen(); });
+    $('ft8Rpt').addEventListener('input', (e) => { ft.rpt = e.target.value.trim(); ftGen(); });
+    $('ft8Dx').addEventListener('change', ftDrawTx);
+    $('ft8TxHz').value = S.ft8TxHz;
+    $('ft8TxHz').addEventListener('change', (e) => { S.ft8TxHz = clamp(Math.round(+e.target.value || 1500), 200, 3000); e.target.value = S.ft8TxHz; save(); });
+    $('ft8Lvl').value = S.ft8Lvl;
+    $('ft8Lvl').addEventListener('input', (e) => { S.ft8Lvl = +e.target.value; save(); });
+    $('ft8Auto').checked = S.ft8Auto;
+    $('ft8Auto').addEventListener('change', (e) => { S.ft8Auto = e.target.checked; save(); });
+    msgEls.forEach((el, i) => el.addEventListener('input', () => { ft.msgs[i] = el.value.toUpperCase(); }));
+    selEls.forEach((el, i) => el.addEventListener('change', () => { ft.sel = i; ftDrawTx(); }));
+    $('ft8Tx').addEventListener('click', () => ftTxOn(!ft.on));
+    $('ft8Halt').addEventListener('click', ftHalt);
+    $('ft8Per').addEventListener('click', () => { S.ft8Per = 1 - S.ft8Per; save(); ftDrawTx(); });
+    setInterval(() => {
+      const now = Date.now(), slot = Math.floor(now / SL());
+      if (!ft.on || ft.cur || ft.lastSlot === slot || slot % 2 !== S.ft8Per || now % SL() > TXT().late) return;
+      ft.lastSlot = slot;
+      ftBegin(slot);
+    }, 100);
+    ftGen();
+    ftDrawTx();
 
     // Status labels change at frame rate; only touch the DOM when they differ.
     let last = '';
@@ -2541,15 +2863,42 @@
       const d = S.decoder;
       if (isFt(d)) $('ft8Bar').style.width = `${(ft8Dec.secInSlot * 1000 / ft8Dec.slot) * 100}%`;
       const warn = state !== 'live' ? '受信停止中' : isFt(d) && S.mode !== 'USB' ? 'USB で受信してください' : '';
-      const key = [d, warn, ft8Last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
+      const key = [d, warn, ft.last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
       if (key === last) return;
       last = key;
       $('cwMode').textContent = cwDec.jp ? 'JP' : 'US';
       $('cwTone').textContent = cwDec.toneAuto || !cwDec.toneHz ? 'AUTO' : `${cwDec.toneHz}Hz`;
       $('cwInfo').textContent = warn || (cwDec.active ? `${cwDec.wpm || '--'} WPM · ${cwDec.toneHz || '---'} Hz` : '--');
       $('cwLed').classList.toggle('on', cwDec.active && cwDec.gate);
-      $('ft8Info').textContent = warn || ft8Last;
+      $('ft8Info').textContent = warn || ft.last;
     }, 100);
+
+    // Waterfall / panel splitter: the panel's share of the plots, kept clear of the spectrum.
+    const split = $('decSplitter'), pane = $('decPane');
+    const place = () => { pane.style.height = S.decFrac * 100 + '%'; };
+    split.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      split.setPointerCapture(e.pointerId);
+      split.classList.add('drag');
+      const plots = $('plots').getBoundingClientRect();
+      const move = (ev) => {
+        S.decFrac = clamp((plots.bottom - ev.clientY) / plots.height, 0.15, 0.85 - S.specFrac);
+        place();
+      };
+      const up = () => {
+        split.classList.remove('drag');
+        split.removeEventListener('pointermove', move);
+        split.removeEventListener('pointerup', up);
+        split.removeEventListener('pointercancel', up);
+        save();
+      };
+      split.addEventListener('pointermove', move);
+      split.addEventListener('pointerup', up);
+      split.addEventListener('pointercancel', up);
+    });
+    split.addEventListener('dblclick', () => { S.decFrac = DEFAULTS.decFrac; place(); save(); });
+    S.decFrac = clamp(S.decFrac, 0.15, 0.85 - S.specFrac);
+    place();
     decSync();
   }
 

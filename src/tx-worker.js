@@ -1,4 +1,4 @@
-// TX worker: microphone audio (or CW key events) in, I/Q blocks out.
+// TX worker: microphone audio (or CW key events, or FT8 / FT4 audio) in, I/Q blocks out.
 // Loaded from a Blob together with dsp.js, so DSP is a global here.
 
 'use strict';
@@ -14,6 +14,9 @@ let fifo = new Float32Array(1 << 16), fr = 0, fill = 0, primed = false;
 // a fixed lead so they land ahead of what is already queued in the device.
 const KEY_LEAD = 0.08;
 let keyT0 = null, keyS0 = 0, pendingKeys = [];
+// Data (FT8 / FT4): one generated waveform at the modulator rate, played from
+// the next block on; silence before and after it.
+let wave = null, wavePos = 0;
 
 function push(x, n) {
   const cap = fifo.length;
@@ -25,7 +28,7 @@ function push(x, n) {
 }
 
 function onMic(chunk) {
-  if (!tx || tx.mode === 'CW') return;
+  if (!tx || tx.mode === 'CW' || tx.data) return;
   if (!resampler) { push(chunk, chunk.length); return; }
   const need = Math.ceil(chunk.length / resampler.ratio) + 4;
   if (rsBuf.length < need) rsBuf = new Float32Array(need);
@@ -34,6 +37,10 @@ function onMic(chunk) {
 
 function takeAudio(m) {
   const out = new Float32Array(m);
+  if (tx.data) {
+    if (wave) { const n = Math.min(m, wave.length - wavePos); if (n > 0) out.set(wave.subarray(wavePos, wavePos + n)); wavePos += m; }
+    return out;
+  }
   const target = Math.round(tx.micRate * FIFO_TARGET);
   if (!primed && fill >= target) primed = true;
   if (!primed) return out;
@@ -60,6 +67,7 @@ self.onmessage = (e) => {
       tx = new DSP.Transmitter(c);
       resampler = Math.abs(c.inRate - tx.micRate) > 0.5 ? new DSP.Resampler(c.inRate / tx.micRate) : null;
       fill = fr = 0; primed = false;
+      wave = null;
       keyT0 = null;
       for (const ev of pendingKeys) schedule(ev);
       pendingKeys = [];
@@ -67,6 +75,9 @@ self.onmessage = (e) => {
     }
     case 'gain':
       if (tx) tx.micGain = m.gain;
+      break;
+    case 'wave':
+      wave = m.s; wavePos = 0;
       break;
     case 'key':
       if (tx) schedule(m); else pendingKeys.push(m);

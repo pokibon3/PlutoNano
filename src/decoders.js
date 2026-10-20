@@ -1,4 +1,5 @@
-// CW / FT8 / FT4 decoders on the demodulated audio, taken from the FTX-1 Controller
+// CW / FT8 / FT4 decoders on the demodulated audio, and the FT8 / FT4 message encoder
+// and waveform for transmitting, taken from the FTX-1 Controller
 // (js/cwdecoder.js, js/ft8.js). The cores are WebAssembly (src/cwdec/, src/ft8/); the
 // build inlines them as base64 and the worklet / worker sources as text, so nothing is fetched.
 
@@ -170,7 +171,39 @@ const PlutoDecoders = (function () {
   // ---------------- FT8 / FT4 ----------------
   // 12 kHz resampling in an AudioWorklet, ft8_lib (WebAssembly) in a Worker, slots aligned to the PC clock
   // (FT8: 15 s, UTC :00 / :15 / :30 / :45; FT4: 7.5 s). Decoding starts 14.4 s (FT8) / 6.3 s (FT4) into each slot.
+  // Transmit: the same Worker packs a message into tones; ft8Wave() makes the GFSK audio.
   const MODES = { FT8: { slot: 15000, decodeAt: 14400 }, FT4: { slot: 7500, decodeAt: 6300 } };
+
+  // Channel waveform as WSJT-X's gen_ft8wave / gen_ft4wave: Gaussian-smoothed frequency (BT 2 for FT8, 1 for FT4),
+  // continuous phase, tone spacing = symbol rate. FT8: 79 tones, raised-cosine ramps over 1/8 symbol at both ends.
+  // FT4: 105 tones whose first and last are ramp symbols (the decoder's encode_tones fills them with the neighbouring
+  // tone), ramped over the whole symbol.
+  function ft8Wave(tones, f0, rate, amp = 1, ft4 = false) {
+    const nsps = Math.round(rate * (ft4 ? 0.048 : 0.16)), n = tones.length * nsps;
+    const erf = (x) => { // Abramowitz-Stegun 7.1.26
+      const sg = Math.sign(x); x = Math.abs(x);
+      const t = 1 / (1 + 0.3275911 * x);
+      return sg * (1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x));
+    };
+    const K = Math.PI * Math.sqrt(2 / Math.log(2)), bt = ft4 ? 1 : 2, hpk = (2 * Math.PI) / nsps;
+    const pulse = new Float32Array(3 * nsps);
+    for (let i = 0; i < pulse.length; i++) { const t = i / nsps - 1.5; pulse[i] = (erf(K * bt * (t + 0.5)) - erf(K * bt * (t - 0.5))) / 2; }
+    // phase increment per sample; the first and last tones are extended by a dummy symbol on each side
+    const dphi = new Float64Array(n + 2 * nsps).fill((2 * Math.PI * f0) / rate);
+    tones.forEach((tone, s) => { for (let j = 0; j < 3 * nsps; j++) dphi[j + s * nsps] += hpk * tone * pulse[j]; });
+    for (let j = 0; j < 2 * nsps; j++) {
+      dphi[j] += hpk * pulse[j + nsps] * tones[0];
+      dphi[j + tones.length * nsps] += hpk * pulse[j] * tones[tones.length - 1];
+    }
+    const out = new Float32Array(n), nr = ft4 ? nsps : Math.round(nsps / 8);
+    let phi = 0;
+    for (let k = 0; k < n; k++) {
+      out[k] = amp * Math.sin(phi);
+      phi = (phi + dphi[k + nsps]) % (2 * Math.PI);
+    }
+    for (let i = 0; i < nr; i++) { const w = (1 - Math.cos((Math.PI * i) / nr)) / 2; out[i] *= w; out[n - 1 - i] *= w; }
+    return out;
+  }
 
   class Ft8Decoder extends EventTarget {
     constructor() {
@@ -179,9 +212,14 @@ const PlutoDecoders = (function () {
       this.worker = new Worker(blobUrl('ft8-worker-src'));
       const bytes = wasmBytes('ft8core-wasm');
       this.worker.postMessage({ type: 'wasm', bytes }, [bytes]);
-      this.worker.onmessage = ({ data: m }) => { if (m.type === 'decoded') this._decoded(m); };
+      this.worker.onmessage = ({ data: m }) => {
+        if (m.type === 'decoded') this._decoded(m);
+        else if (m.type === 'encoded') { this.encodes.get(m.id)?.(m); this.encodes.delete(m.id); }
+      };
+      this.encodes = new Map(); this.encId = 0;
       this.mode = 'FT8';
       this.cur = -1; this.collecting = false; this.decodedSlot = -1;
+      this.txSlot = -1; // a slot we transmit in is not decoded (the RX audio then holds our own signal)
       // ms from the air to the audio reaching the decoder (IQ block + playback buffer); slots are shifted by it
       this.delay = 0;
       this.timer = null;
@@ -194,7 +232,7 @@ const PlutoDecoders = (function () {
       if (!MODES[mode] || mode === this.mode) return;
       this.mode = mode;
       this.worker.postMessage({ type: 'init', ft4: this.ft4 });
-      this.cur = -1; this.collecting = false;
+      this.cur = -1; this.collecting = false; this.txSlot = -1;
     }
 
     async start(ctx, src) {
@@ -217,6 +255,11 @@ const PlutoDecoders = (function () {
       this.node = this.ctx = this.src = null;
       this.dispatchEvent(new Event('state'));
     }
+    // message text -> { rc, text (as received), tones (Uint8Array, null when rc != 0) }
+    encode(text) {
+      const id = ++this.encId;
+      return new Promise((res) => { this.encodes.set(id, res); this.worker.postMessage({ type: 'encode', id, text }); });
+    }
     // seconds into the current slot (for the progress bar)
     get secInSlot() { return ((Date.now() - this.delay) % this.slot) / 1000; }
 
@@ -228,7 +271,7 @@ const PlutoDecoders = (function () {
         this.collecting = t < 1000;
         this.worker.postMessage({ type: 'reset' });
       }
-      if (this.collecting && t >= MODES[this.mode].decodeAt && this.decodedSlot !== slot) {
+      if (this.collecting && t >= MODES[this.mode].decodeAt && this.decodedSlot !== slot && this.txSlot !== slot) {
         this.decodedSlot = slot;
         this.worker.postMessage({ type: 'decode', slot, mode: this.mode });
       }
@@ -243,5 +286,5 @@ const PlutoDecoders = (function () {
     }
   }
 
-  return { CwDecoder, Ft8Decoder, addWorklet };
+  return { CwDecoder, Ft8Decoder, ft8Wave, addWorklet };
 })();
