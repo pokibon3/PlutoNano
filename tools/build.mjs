@@ -1,4 +1,4 @@
-// Inlines src/* into a single self-contained dist/PlutoNano.html, and
+// Inlines src/* (and the decoders' wasm as base64) into a single self-contained dist/PlutoNano.html, and
 // writes docs/ (GitHub Pages) with the same page as an installable PWA.
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -10,11 +10,13 @@ const src = (f) => readFileSync(join(root, 'src', f), 'utf8');
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 let html = src('index.html').replaceAll('__APP_VERSION__', pkg.version);
-html = html.replace(/\/\*INLINE:([\w.-]+)\*\//g, (_, f) => {
+html = html.replace(/\/\*INLINE:([\w./-]+)\*\//g, (_, f) => {
   const code = src(f);
   if (/<\/script/i.test(code)) throw new Error(`${f} contains "</script"`);
   return code;
 });
+// Binary files (the decoders' WebAssembly cores) as base64.
+html = html.replace(/\/\*INLINE_B64:([\w./-]+)\*\//g, (_, f) => readFileSync(join(root, 'src', f)).toString('base64'));
 
 mkdirSync(join(root, 'dist'), { recursive: true });
 const out = join(root, 'dist', 'PlutoNano.html');

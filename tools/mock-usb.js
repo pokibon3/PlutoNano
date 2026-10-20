@@ -35,7 +35,25 @@
     { f: 79.4e6, kind: 'cw', amp: 0.05 },
     { f: 145.0e6, kind: 'cw', amp: 0.08 },
     { f: 433.92e6, kind: 'cw', amp: 0.1 },
+    // Keyed Morse for the CW decoder: "CQ CQ DE JA1ZZZ K" at 20 WPM, repeated.
+    { f: 144.05e6, kind: 'morse', amp: 0.05, key: morseKeying('CQ CQ DE JA1ZZZ K', 20) },
   ];
+
+  // On/off timeline in seconds: dot = 1.2 / wpm, dash 3, gaps 1 / 3 / 7 dots.
+  function morseKeying(text, wpm) {
+    const code = { A: '.-', C: '-.-.', D: '-..', E: '.', J: '.---', K: '-.-', Q: '--.-', Z: '--..', 1: '.----' };
+    const dot = 1.2 / wpm, marks = [];
+    let t = 0;
+    for (const w of text.split(' ')) {
+      for (const ch of w) {
+        for (const el of code[ch]) { const d = el === '.' ? dot : 3 * dot; marks.push([t, t + d]); t += d + dot; }
+        t += 2 * dot;
+      }
+      t += 4 * dot;
+    }
+    return { marks, period: t + 7 * dot };
+  }
+  const keyed = (k, sec) => { const x = sec % k.period; return k.marks.some(([a, b]) => x >= a && x < b); };
   let t = 0;
   const phases = stations.map(() => 0);
 
@@ -48,6 +66,7 @@
       for (let s = 0; s < stations.length; s++) {
         const st = stations[s], off = st.f - lo;
         if (Math.abs(off) > fs / 2) continue;
+        if (st.kind === 'morse' && !keyed(st.key, t / fs)) continue;
         let dphi = 2 * Math.PI * off / fs;
         if (st.kind === 'fm') dphi += 2 * Math.PI * 50e3 * Math.sin(2 * Math.PI * st.tone * t / fs) / fs;
         phases[s] += dphi;

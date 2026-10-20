@@ -1,0 +1,3 @@
+ft8_lib 9fec6ca (https://github.com/kgoba/ft8_lib), MIT
+patched: ftx_candidate_llr() added to ft8/decode.c for the OSD decoder in api.c;
+         ftx_find_candidates() searches FT4 start times up to 40 symbols (1.92 s) instead of 20

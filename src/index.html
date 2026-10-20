@@ -128,6 +128,17 @@
     </details>
 
     <details open>
+      <summary>Decoder</summary>
+      <div class="row"><span class="lbl">Decoder</span>
+        <select id="decoder">
+          <option value="">Off</option><option value="CW">CW</option><option value="FT8">FT8</option><option value="FT4">FT4</option>
+        </select></div>
+      <div class="row" title="CW デコーダへの入力レベル。受信音量（AF）とは別"><span class="lbl">CW input</span>
+        <input id="cwGain" type="range" min="-20" max="20" step="1"><span id="cwGainVal" class="num">0 dB</span></div>
+      <div class="row"><span class="hint">復調した音声を解読して、ウォーターフォールの下に表示します。CW は CW / USB / LSB、FT8・FT4 は USB で受信してください。FT8・FT4 は PC の時計が ±1 秒以内に合っている必要があります。</span></div>
+    </details>
+
+    <details open>
       <summary>Transmit</summary>
       <div class="row"><label class="lbl chk"><input id="txEnabled" type="checkbox"> 送信を有効にする</label></div>
       <div class="row"><span class="lbl">TX level</span>
@@ -197,6 +208,28 @@
         <canvas id="wf"></canvas>
         <canvas id="wfOverlay"></canvas>
       </div>
+      <section id="decPane" hidden>
+        <div class="dec-bar">
+          <span class="dec-modes"><button data-dec="CW">CW</button><button data-dec="FT8">FT8</button><button data-dec="FT4">FT4</button></span>
+          <span class="dec-cw">
+            <span id="cwLed" class="led" title="信号を検出中"></span>
+            <span id="cwInfo" class="mono">--</span>
+            <button id="cwMode" title="欧文 / 和文">US</button>
+            <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
+          </span>
+          <span class="dec-ft8">
+            <span class="ft8-slot" title="周期の経過"><i id="ft8Bar"></i></span>
+            <span id="ft8Info" class="mono">--</span>
+            <label class="chk"><input id="ft8Cq" type="checkbox"> CQ のみ</label>
+          </span>
+          <span class="spacer"></span>
+          <button id="decClr">Clear</button>
+          <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
+        </div>
+        <div id="cwText" class="dec-cw dec-text"></div>
+        <div class="dec-ft8 ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
+        <div id="ft8List" class="dec-ft8 ft8-list"></div>
+      </section>
     </div>
     <div id="rightbar">
       <span class="rb-lbl">Zoom</span>
@@ -225,7 +258,13 @@
 <script type="text/plain" id="txworker-src">/*INLINE:dsp.js*/
 /*INLINE:tx-worker.js*/</script>
 <script type="text/plain" id="worklet-src">/*INLINE:audio-worklet.js*/</script>
+<script type="text/plain" id="cw-worklet-src">/*INLINE:cwdec/cw-worklet.js*/</script>
+<script type="text/plain" id="cwcore-wasm">/*INLINE_B64:cwdec/cwcore.wasm*/</script>
+<script type="text/plain" id="ft8-worklet-src">/*INLINE:ft8/ft8-worklet.js*/</script>
+<script type="text/plain" id="ft8-worker-src">/*INLINE:ft8/ft8-worker.js*/</script>
+<script type="text/plain" id="ft8core-wasm">/*INLINE_B64:ft8/ft8core.wasm*/</script>
 <script>/*INLINE:pluto.js*/</script>
+<script>/*INLINE:decoders.js*/</script>
 <script>/*INLINE:app.js*/</script>
 </body>
 </html>

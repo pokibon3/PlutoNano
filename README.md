@@ -81,6 +81,16 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 - 受信範囲は 70 MHz〜6 GHz（AD9364 の仕様。70 MHz 未満を受けるにはアップコンバーターが必要）
 - サンプルレート: 2.4〜7.68 MSPS。2.083 MSPS 未満は Pluto SDR Nano に FIR フィルタの読み込みが必要なので選べない（受け付けられないレートを書き込むと、次のレート変更で Pluto SDR Nano が固まる）。USB 2.0 の実効上限が約 8 MSPS なので、連続受信は 6 MSPS 以下を推奨。7.68 MSPS では音が途切れることがある
 
+### デコーダ（CW / FT8 / FT4）
+
+サイドバーの **Decoder** で CW / FT8 / FT4 を選ぶと、復調した音声を解読してウォーターフォールの下に表示する。デコーダは [FTX-1 Controller](https://github.com/pokibon3/FTX1Controller) と同じもの（WebAssembly を AudioWorklet / Worker で実行）。音量（AF）に関係なく、音量調整の前の音声を解読する。
+
+- CW: [CW Decoder 4](https://github.com/pokibon3/cw_decoder4) の WebAssembly 版（ESP32 版と同じ DSP / デコーダ、GPL）。CW / USB / LSB で受信する（CW 以外の FM / AM モードで選ぶと CW に切り替える）。`US` / `JP` で欧文・和文、トーンボタンで AUTO（500〜1000 Hz 自動同調）と手動 600〜1000 Hz を切り替える。入力レベルはサイドバーの **CW input**
+- FT8 / FT4: [ft8_lib](https://github.com/kgoba/ft8_lib)（MIT）に WSJT-X 相当の精密同期・OSD 復号・3 パスの信号引き算を加えたもの。選ぶと USB・3 kHz 幅のフィルタに切り替える。FT8 は 15 秒（UTC :00 / :15 / :30 / :45）、FT4 は 7.5 秒ごとに解読し、新しい周期を上に表示する。**CQ のみ** で CQ だけを表示
+- FT8 / FT4 は PC の時計が ±1 秒以内に合っている必要がある。受信から解読までの遅れ（約 0.15 秒）は補正している
+- 受信できるのは 70 MHz 以上なので、HF / 50 MHz の FT8 を受けるにはアップコンバーターが必要
+- 受信のみ（FT8 / FT4 の送信は未対応）
+
 ### 送信
 
 サイドバーの **Transmit** で「送信を有効にする」にチェックすると使える（初回だけ免許・法令の確認がある）。
@@ -115,6 +125,10 @@ src/worker.js         DSP ワーカー（スペクトラム + 音声）
 src/tx-worker.js      送信ワーカー（マイク / 電鍵 → 変調 → I/Q）
 src/audio-worklet.js  音声出力（リングバッファ）とマイク入力
 src/app.js            UI・フロントパネル・描画・スキャン
+src/decoders.js       CW / FT8 / FT4 デコーダ（FTX-1 Controller から移植）
+src/cwdec/            CW デコーダの AudioWorklet と WebAssembly（cw_decoder4）
+src/ft8/              FT8 / FT4 デコーダの AudioWorklet・Worker と WebAssembly（ft8_lib）
+wasm/ft8/             ft8core.wasm のソースとビルドスクリプト（sh wasm/ft8/build.sh）
 src/index.html        画面
 src/style.css         スタイル
 pwa/                  PWA 用の manifest、service worker、アイコン
@@ -130,6 +144,7 @@ npm run build                # dist/PlutoNano.html と docs/ を生成
 npm run test:usb             # 実機で pluto.js を検証（Node + node-usb）
 node tools/test-tx.mjs       # 実機で送信経路を検証（最小出力 −89.75 dB、430 MHz 帯）
 node tools/test-dsp.mjs      # 合成信号で復調・変調を検証
+node tools/test-decoders.mjs # 合成信号で CW / FT8 / FT4 デコーダを検証（build 後）
 node tools/make-icons.mjs    # pwa/icon.svg から PNG アイコンを生成
 node tools/browser-check.mjs shot.png --mock   # ヘッドレス Chrome + 擬似デバイス で画面確認
 ```

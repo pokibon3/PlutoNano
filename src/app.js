@@ -49,7 +49,7 @@
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
-    audioOut: '', audioIn: '',
+    audioOut: '', audioIn: '', decoder: '', cwGain: 0, ft8Cq: false,
   };
 
   // ---------------- settings ----------------
@@ -162,11 +162,10 @@
     analyser.connect(gain);
     const ch = new MessageChannel();
     let node = null;
-    // file:// pages cannot load worklets from blob: URLs, but data: URLs work.
-    const code = $('worklet-src').textContent;
-    for (const url of ['data:text/javascript;base64,' + btoa(unescape(encodeURIComponent(code))), blobUrl('worklet-src')]) {
-      try { await ctx.audioWorklet.addModule(url); node = new AudioWorkletNode(ctx, 'pluto-player', { numberOfInputs: 0, outputChannelCount: [2] }); break; } catch (e) { /* try next */ }
-    }
+    try {
+      await PlutoDecoders.addWorklet(ctx, 'worklet-src');
+      node = new AudioWorkletNode(ctx, 'pluto-player', { numberOfInputs: 0, outputChannelCount: [2] });
+    } catch (e) { /* fall back below */ }
     ctx.hasWorklet = !!node;
     if (node) {
       node.port.postMessage({ port: ch.port1 }, [ch.port1]);
@@ -179,6 +178,7 @@
     // Drop what piled up while suspended so playback starts without lag.
     ctx.addEventListener('statechange', () => { if (ctx.state === 'running') node.port.postMessage({ reset: true }); });
     resumeAudio();
+    decSync();
   }
 
   // ---------------- audio devices ----------------
@@ -2440,6 +2440,119 @@
     $('introClose').addEventListener('click', () => { $('intro').hidden = true; S.introSeen = true; save(); });
   }
 
+  // ---------------- decoders ----------------
+  // CW / FT8 / FT4 on the demodulated audio, tapped ahead of the volume control (decoders.js).
+  const cwDec = new PlutoDecoders.CwDecoder();
+  const ft8Dec = new PlutoDecoders.Ft8Decoder();
+  // Air to decoder: one IQ block (~30 ms) plus the playback buffer (120 ms). FT8 slots are shifted by it.
+  ft8Dec.delay = 150;
+  let decStarting = false;
+  let ft8Rows = [], ft8Last = '--';
+  const isFt = (d) => d === 'FT8' || d === 'FT4';
+
+  async function decSync() {
+    const want = S.decoder;
+    $('decoder').value = want;
+    $('decPane').hidden = !want;
+    $('decPane').dataset.kind = want === 'CW' ? 'cw' : 'ft8';
+    document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.classList.toggle('active', b.dataset.dec === want));
+    if (want !== 'CW') cwDec.stop();
+    if (!isFt(want)) ft8Dec.stop();
+    else if (ft8Dec.mode !== want) { ft8Dec.setMode(want); ft8Rows = []; ft8Last = '--'; drawFt8(); }
+    if (!want || !audio || decStarting || (want === 'CW' ? cwDec.active : ft8Dec.active)) return;
+    decStarting = true;
+    try {
+      if (!audio.ctx.hasWorklet) throw new Error('AudioWorklet が使えません');
+      if (want === 'CW') await cwDec.start(audio.ctx, audio.node);
+      else await ft8Dec.start(audio.ctx, audio.node);
+    } catch (e) {
+      toast('デコーダを開始できません: ' + e.message);
+      S.decoder = ''; save();
+    }
+    decStarting = false;
+    if (S.decoder !== want) decSync();
+  }
+
+  function setDecoder(d) {
+    S.decoder = d;
+    save();
+    // FT8 / FT4 need USB with the 3 kHz filter; CW reads the tone in CW / USB / LSB.
+    const pick = (m) => document.querySelector(`#modes button[data-mode="${m}"]`).click();
+    if (isFt(d) && S.mode !== 'USB') pick('USB');
+    if (d === 'CW' && !['CW', 'USB', 'LSB'].includes(S.mode)) pick('CW');
+    if (isFt(d) && mode().bandwidth < 2900) { mode().fil = 0; setBandwidth(Math.max(mode().filters[0], 3000)); }
+    decSync();
+  }
+
+  function drawFt8() {
+    const list = $('ft8List');
+    const top = list.scrollTop;
+    const shown = S.ft8Cq ? ft8Rows.filter((r) => /^CQ\b/.test(r.text)) : ft8Rows;
+    list.innerHTML = '';
+    let lastUtc = null;
+    for (const r of shown) {
+      const el = document.createElement('div');
+      el.className = `ft8-row${/^CQ\b/.test(r.text) ? ' cq' : ''}${r.utc !== lastUtc ? ' first' : ''}`;
+      lastUtc = r.utc;
+      for (const t of [r.utc, r.snr > 0 ? `+${r.snr}` : r.snr, r.dt.toFixed(1), r.freq, r.text]) {
+        const c = document.createElement('span');
+        c.textContent = t;
+        el.appendChild(c);
+      }
+      list.appendChild(el);
+    }
+    list.scrollTop = top;
+  }
+
+  function bindDecoders() {
+    $('decoder').addEventListener('change', (e) => setDecoder(e.target.value));
+    document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.addEventListener('click', () => setDecoder(b.dataset.dec)));
+    $('decOff').addEventListener('click', () => setDecoder(''));
+    $('decClr').addEventListener('click', () => {
+      if (S.decoder === 'CW') cwDec.clear();
+      else { ft8Rows = []; drawFt8(); }
+    });
+
+    const cwText = $('cwText');
+    cwDec.addEventListener('text', () => {
+      const atBottom = cwText.scrollHeight - cwText.scrollTop - cwText.clientHeight < 30;
+      cwText.textContent = cwDec.text;
+      if (atBottom) cwText.scrollTop = cwText.scrollHeight;
+    });
+    $('cwMode').addEventListener('click', () => cwDec.toggleMode());
+    $('cwTone').addEventListener('click', () => cwDec.cycleTone());
+    const cwGainLabel = () => { $('cwGainVal').textContent = `${S.cwGain > 0 ? '+' : ''}${S.cwGain} dB`; };
+    $('cwGain').value = S.cwGain;
+    cwGainLabel();
+    cwDec.setGain(S.cwGain);
+    $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
+
+    ft8Dec.addEventListener('decoded', (e) => {
+      ft8Rows = [...e.detail.rows, ...ft8Rows].slice(0, 300); // newest slot on top
+      ft8Last = `${e.detail.utc} · ${e.detail.rows.length} 件`;
+      drawFt8();
+    });
+    $('ft8Cq').checked = S.ft8Cq;
+    $('ft8Cq').addEventListener('change', (e) => { S.ft8Cq = e.target.checked; save(); drawFt8(); });
+
+    // Status labels change at frame rate; only touch the DOM when they differ.
+    let last = '';
+    setInterval(() => {
+      const d = S.decoder;
+      if (isFt(d)) $('ft8Bar').style.width = `${(ft8Dec.secInSlot * 1000 / ft8Dec.slot) * 100}%`;
+      const warn = state !== 'live' ? '受信停止中' : isFt(d) && S.mode !== 'USB' ? 'USB で受信してください' : '';
+      const key = [d, warn, ft8Last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
+      if (key === last) return;
+      last = key;
+      $('cwMode').textContent = cwDec.jp ? 'JP' : 'US';
+      $('cwTone').textContent = cwDec.toneAuto || !cwDec.toneHz ? 'AUTO' : `${cwDec.toneHz}Hz`;
+      $('cwInfo').textContent = warn || (cwDec.active ? `${cwDec.wpm || '--'} WPM · ${cwDec.toneHz || '---'} Hz` : '--');
+      $('cwLed').classList.toggle('on', cwDec.active && cwDec.gate);
+      $('ft8Info').textContent = warn || ft8Last;
+    }, 100);
+    decSync();
+  }
+
   // ---------------- installable app ----------------
   // Only the GitHub Pages build links a manifest; file:// pages skip this.
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
@@ -2481,13 +2594,16 @@
   updateBands();
   bindControls();
   bindTx();
+  bindDecoders();
   syncControls();
   renderFreq();
   setStatus();
   specCanvas.style.height = S.specFrac * 100 + '%';
   attachPointer(specCanvas);
   attachPointer(ovCanvas);
-  new ResizeObserver(resize).observe($('plots'));
+  const plotsObserver = new ResizeObserver(resize);
+  plotsObserver.observe($('plots'));
+  plotsObserver.observe($('wfWrap')); // the decoder pane takes height from the waterfall
   resize();
   workerConfig();
   requestAnimationFrame(frame);
