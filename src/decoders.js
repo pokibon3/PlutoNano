@@ -31,9 +31,18 @@ const PlutoDecoders = (function () {
 
   // ---------------- CW ----------------
   // Signal chain as in cw_decoder4/web: input BPF (Q=3, tracks the tone) -> worklet (8 kHz, wasm core).
+  // The decoder keeps what the core's frames carry: text, spectrum, scope columns, input level (drawn by cwview.js
+  // as cw_decoder4's web page does).
 
   // status[] indices (cw_decoder4 web/wasm/api.cpp cw_status_t)
-  const ST = { charN: 4, wpm: 5, toneHz: 6, toneAuto: 8, mode: 15, gate: 16, clip: 17 };
+  const ST = {
+    scopeTotal: 0, scopeFirst: 1, scopeLost: 2, scopeN: 3, charN: 4,
+    wpm: 5, toneHz: 6, toneIdx: 7, toneAuto: 8, peakHz: 9, gateBw: 10,
+    periodQ8: 11, colMsX10: 12, inputPeak: 13, inputPct: 14,
+    mode: 15, gate: 16, clip: 17,
+  };
+  const SPEC_BINS = 65;   // bin 0..64, 31.25 Hz each (8 kHz / 256)
+  const SR = 8192;        // scope column ring (as cw_decoder4 web/app.js)
   const BPF_Q = 3;
 
   // JIS X 0201 kana -> full-width katakana (same table as cw_decoder4 display.cpp)
@@ -75,6 +84,14 @@ const PlutoDecoders = (function () {
       this.status = null;
       this.chars = [];
       this.gain = 1;
+      this.spec = new Uint16Array(SPEC_BINS);
+      // scope columns (min / max raw, envelope, key gate), numbered from the core's running column count
+      this.sMn = new Int16Array(SR); this.sMx = new Int16Array(SR);
+      this.sMag = new Uint16Array(SR); this.sGate = new Uint8Array(SR);
+      this.sTotal = 0;
+      this.ticker = [];  // decoded characters at the scope column they ended on, { ch, col }
+      this.inRate = 0; this.inRateMs = 0; this.lastPushed = -1; this.lastT = 0; // input rate (8000 sps when nothing is lost)
+      this.lastClip = 0; this.clipMs = 0;
     }
 
     get active() { return !!this.node; }
@@ -117,6 +134,8 @@ const PlutoDecoders = (function () {
       bpf.frequency.value = this._bpfCenter();
       await ready;
       node.port.postMessage({ type: 'reset' });
+      // the core restarts its column count and input counter
+      this.sTotal = 0; this.ticker = []; this.lastPushed = -1; this.inRate = 0;
       this.dispatchEvent(new Event('state'));
     }
 
@@ -133,7 +152,7 @@ const PlutoDecoders = (function () {
     toggleMode() { this.node?.port.postMessage({ type: 'toggleMode' }); }
     cycleTone() { this.node?.port.postMessage({ type: 'cycleTone' }); }
     setGain(db) { this.gain = Math.pow(10, db / 20); this.node?.port.postMessage({ type: 'gain', value: this.gain }); }
-    clear() { this.chars = []; this.dispatchEvent(new Event('text')); }
+    clear() { this.chars = []; this.ticker = []; this.dispatchEvent(new Event('text')); }
 
     _bpfCenter() {
       const hz = this.toneHz;
@@ -142,11 +161,34 @@ const PlutoDecoders = (function () {
 
     _onFrame(m) {
       this.status = m.status;
+      this.spec = m.spec;
+      // scope columns into the ring
+      const n = m.status[ST.scopeN], first = m.colFirst, dv = new DataView(m.cols.buffer);
+      for (let i = 0; i < n; i++) {
+        const o = i * m.stride, k = (first + i) % SR;
+        this.sMn[k] = dv.getInt16(o, true); this.sMx[k] = dv.getInt16(o + 2, true);
+        this.sMag[k] = dv.getUint16(o + 4, true); this.sGate[k] = m.cols[o + 6];
+      }
+      if (n) this.sTotal = first + n;
       const nc = m.status[ST.charN];
       if (nc) {
-        for (let i = 0; i < nc; i++) this._putChar(m.chars[i * 8 + 4]);
+        const cv = new DataView(m.chars.buffer);
+        for (let i = 0; i < nc; i++) {
+          const ch = m.chars[i * 8 + 4];
+          this._putChar(ch);
+          if (ch !== 0x20) this.ticker.push({ ch, col: cv.getUint32(i * 8, true) });
+        }
+        if (this.ticker.length > 96) this.ticker = this.ticker.slice(-96);
         this.dispatchEvent(new Event('text'));
       }
+      // input rate from the frame-to-frame increase (below 8000: the audio thread is dropping input)
+      if (this.lastPushed >= 0 && m.t > this.lastT) {
+        const d = m.pushed - this.lastPushed, dt = m.t - this.lastT;
+        if (d > 0) { const r = d / dt; this.inRate = this.inRate ? this.inRate + (r - this.inRate) * 0.1 : r; this.inRateMs = performance.now(); }
+      }
+      this.lastPushed = m.pushed; this.lastT = m.t;
+      const clip = m.status[ST.clip];
+      if (clip !== this.lastClip) { this.lastClip = clip; this.clipMs = performance.now(); }
       if (this.bpf && this.ctx) {
         const f = this._bpfCenter();
         if (Math.abs(this.bpf.frequency.value - f) >= 1) this.bpf.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.05);
@@ -286,5 +328,5 @@ const PlutoDecoders = (function () {
     }
   }
 
-  return { CwDecoder, Ft8Decoder, ft8Wave, addWorklet };
+  return { CwDecoder, Ft8Decoder, ft8Wave, addWorklet, ST, codepointOf };
 })();

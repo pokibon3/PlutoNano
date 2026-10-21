@@ -313,6 +313,76 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .ft8-msg.sending input[type=text] { border-color: var(--danger); color: #ff8a80; }
 .ft8-txkeys { grid-template-columns: 70px 70px 70px auto; justify-content: start; align-items: center; }
 @media (max-width: 1000px) { .dec-body.dec-ft8 { flex-direction: column; overflow-y: auto; } .ft8-tx { min-width: 0; overflow: visible; } .ft8-rx { min-height: 140px; } }
+
+/* CW RX (cw_decoder4's web page: status row, text, FFT / oscilloscope, its colours) and CW TX (log over the editor) */
+:root { --cw-font: 18px/1.45 "Hiragino Sans", "Noto Sans JP", "Yu Gothic", monospace; }
+.dtag.err { background: var(--danger); color: #fff; cursor: help; }
+.cw-rx { flex: 3; }
+.cw-tx { flex: 2; min-width: 260px; }
+.cwd-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
+.cwd-status button { height: 24px; }
+#cwMode, #cwTone { min-width: 64px; }
+#cwMode.jp { background: #6e4610; border-color: #fac775; color: #ffe8be; }
+.cwd-sep { width: 1px; align-self: stretch; background: #28374b; }
+.cwd-m { font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: #fac775; white-space: nowrap; }
+.cwd-m b { font-size: 16px; display: inline-block; text-align: right; }
+.cwd-m.hz { color: #5a96d2; }
+.cwd-m.pk { color: #5adc78; }
+/* fixed widths: changing readings must not shift the buttons beside them */
+#cwWpmRx { width: 22px; } #cwToneHz { width: 36px; } #cwPeak { width: 52px; } #cwWpm { width: 22px; }
+.cwd-lvl { display: flex; align-items: center; gap: 6px; font: 11px/1 ui-monospace, monospace; color: var(--muted); }
+.cwd-lvl i { font-style: normal; }
+#cwLvl { width: 68px; }
+.cwd-rate { width: 62px; }
+.cwd-bar { position: relative; width: 90px; height: 10px; border: 1px solid #28374b; border-radius: 2px; overflow: hidden; background: #060a10; }
+.cwd-bar b { display: block; height: 100%; width: 0; background: #2dc878; transition: width .08s linear; }
+.cwd-bar s { position: absolute; top: 0; bottom: 0; left: 90%; width: 1px; background: #e6b43c; }
+.cwd-clip { color: #fff; background: #eb4638; border-radius: 3px; padding: 1px 5px; visibility: hidden; }
+.cw-rxtext {
+  flex: 1; min-height: 30px; margin: 0; overflow-y: auto; padding: 4px 10px; border-radius: 4px;
+  background: #0a1018; border: 1px solid #28374b; color: #e1e6dc; font: var(--cw-font); letter-spacing: .06em;
+  white-space: pre-wrap; word-break: break-all;
+}
+.cw-rxtext .new { color: #adff2f; }
+.cwd-panels { display: flex; gap: 8px; flex: none; }
+.cwd-card { flex: 1 1 0; min-width: 0; background: #111823; border: 1px solid #28374b; border-radius: 6px; padding: 4px; }
+.cwd-card.wide { flex-basis: 100%; }
+.cwd-card.hidden { display: none; }
+.cwd-cap { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; color: #8b94a3; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.cwd-cap .grow { flex: 1; text-align: right; color: #5adc78; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; }
+.cwd-cap label { display: flex; align-items: center; gap: 3px; }
+.cwd-cap input[type=range] { width: 40px; }
+.cwd-cap button.trace { height: 20px; padding: 0 6px; font-size: 10px; color: #6f757d; }
+.cwd-cap button.trace.on { color: #5adc78; }
+.cwd-card canvas { display: block; width: 100%; height: 72px; background: #020810; border-radius: 4px; cursor: crosshair; }
+.cw-speed { display: flex; align-items: center; gap: 10px; flex: none; }
+.cw-speed .cwd-m { min-width: 70px; }
+.cw-speed input[type=range] { flex: 1; }
+.cw-log {
+  flex: 1; min-height: 30px; overflow-y: auto; padding: 4px 10px; border-radius: 4px;
+  background: #0a1018; border: 1px solid #28374b; font: var(--cw-font); letter-spacing: .06em;
+  white-space: pre-wrap; word-break: break-all; user-select: text;
+}
+.cw-line + .cw-line { border-top: 1px solid #1a2331; }
+.cw-time { color: #4e5b6b; font: 11px ui-monospace, Menlo, monospace; letter-spacing: normal; }
+.cw-sent { color: #e1e6dc; }
+.cw-pend { color: #8a6a2a; }
+.cw-abort { color: #6a4040; text-decoration: line-through; }
+.cw-pro { color: #5a96d2; } /* ホレ / ラタ inserted on switching Latin <-> Wabun */
+/* editor: transparent textarea over a backdrop that draws the same text in colours (same box metrics) */
+.cw-edit-wrap { position: relative; flex: 1; min-height: 56px; }
+.cw-edit-wrap .cw-box, .cw-back {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px;
+  font: var(--cw-font); letter-spacing: .06em;
+  white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; text-transform: uppercase;
+  scrollbar-gutter: stable; /* both wrap at the same width when the textarea scrolls */
+}
+.cw-back { overflow: hidden; background: #0b0b0d; color: var(--text); pointer-events: none; }
+.cw-edit-wrap .cw-box { background: transparent; color: transparent; caret-color: #e6e8eb; overflow-y: auto; resize: none; }
+.cw-edit-wrap .cw-box::placeholder { color: #5a6068; }
+.cw-back .cw-sent { color: #5adc78; }
+.cw-back .cw-pend { color: #c8952e; }
+@media (max-width: 1000px) { .dec-body.dec-cw { flex-direction: column; overflow-y: auto; } .cw-tx { min-width: 0; min-height: 200px; } .cw-rx { min-height: 260px; } }
 </style>
 </head>
 <body>
@@ -322,7 +392,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
     </div>
-    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.7.0</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.0</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -528,24 +598,50 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
           <span class="spacer"></span>
           <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
         </div>
+        <!-- CW RX (left) / TX (right), as the FTX-1 Controller. RX shows what cw_decoder4's web page shows -->
         <div class="dec-body dec-cw">
-          <div class="dec-col">
-            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span>
-              <label class="chk">WPM <input id="cwWpm" type="number" min="5" max="50" step="1"></label></div>
-            <textarea id="cwTxText" class="dec-box" placeholder="CQ CQ DE JA1XXX K" spellcheck="false"></textarea>
-            <div class="cw-keys" id="cwMem">
-              <button id="cwSend" title="テキストを送信">SEND</button>
-              <button id="cwStop" title="送信を止める">STOP</button>
+          <div class="dec-col cw-rx">
+            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="キー判定"></span></div>
+            <div class="cwd-status">
+              <button id="cwMode" title="欧文 / 和文">US</button>
+              <button id="cwTone" title="トーン: AUTO → 600〜1000Hz 手動">AUTO</button>
+              <span class="cwd-sep"></span>
+              <span class="cwd-m"><b id="cwWpmRx">--</b> WPM</span>
+              <span class="cwd-m hz">TONE <b id="cwToneHz">---</b> Hz</span>
+              <span class="cwd-m pk">Peak <b id="cwPeak">----</b></span>
+              <span class="cwd-sep"></span>
+              <span class="cwd-lvl"><i>LVL</i><span class="cwd-bar"><b id="cwLvlBar"></b><s></s></span><span id="cwLvl">-inf dBFS</span><span class="cwd-clip" id="cwClip">CLIP</span><span class="cwd-rate" id="cwRate"></span></span>
+              <span class="spacer"></span>
+              <span id="cwInfo" class="mono"></span>
+              <button id="cwCopy">コピー</button>
+              <button id="cwClr">クリア</button>
+            </div>
+            <pre id="cwText" class="cw-rxtext"></pre>
+            <div class="cwd-panels">
+              <div class="cwd-card" id="cwFftCard">
+                <div class="cwd-cap" id="cwFftCap" title="グラフのクリックでトーン選択・ダブルクリックで全幅 / ここをクリックで全幅"><span>FFT スペクトラム</span></div>
+                <canvas id="cwFft"></canvas>
+              </div>
+              <div class="cwd-card" id="cwScopeCard">
+                <div class="cwd-cap" id="cwScopeCap" title="クリックで全幅表示 / もう一度で元に戻す"><span>オシロスコープ</span><span class="grow" id="cwScopeSpan"></span>
+                  <label title="時間軸の倍率">x<input type="range" id="cwZoom" min="1" max="3" step="0.5" value="2"><span id="cwZoomV">2.0</span></label>
+                  <button class="trace on" id="cwKey">KEY</button><button class="trace on" id="cwEnv">ENV</button><button class="trace on" id="cwRaw">RAW</button></div>
+                <canvas id="cwScope" title="クリックで全幅表示 / もう一度で元に戻す"></canvas>
+              </div>
             </div>
           </div>
-          <div class="dec-col">
-            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="信号を検出中"></span><span class="spacer"></span>
-              <span id="cwInfo" class="mono">--</span></div>
-            <div id="cwText" class="dec-box dec-text"></div>
-            <div class="cw-keys">
-              <button id="cwMode" title="欧文 / 和文">US</button>
-              <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
-              <button id="cwClr">CLR</button>
+          <div class="dec-col cw-tx">
+            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span><span class="dtag err" id="cwHow" hidden>送信不可</span></div>
+            <div class="cw-keys" id="cwMem">
+              <button id="cwSend" title="入力欄の文を送信（Enter でも可）。送信済みは色が変わって編集不可、その先は送信中も編集・追記できます">SEND</button>
+              <button id="cwStop">STOP</button>
+            </div>
+            <div class="cw-speed"><span class="cwd-m"><b id="cwWpm">20</b> WPM</span><input type="range" id="cwSpeed" min="4" max="60" step="1" value="20" title="送信速度"></div>
+            <div class="cw-log" id="cwLog" title="送信ログ（送信済みの文字は明るく、送信待ちの文字は暗く表示）"></div>
+            <!-- the editor's text is drawn by the backdrop (sent / on air / editable colours); the textarea on top is transparent -->
+            <div class="cw-edit-wrap">
+              <div class="cw-back" id="cwBack" aria-hidden="true"></div>
+              <textarea class="cw-box" id="cwTxText" placeholder="CQ CQ DE JA1XXX K" spellcheck="false" title="送信する文（Enter で送信、Shift+Enter で改行）。送信済み（色付き）は編集できず、その先は送信中も編集できます"></textarea>
             </div>
           </div>
         </div>
@@ -2842,9 +2938,18 @@ const PlutoDecoders = (function () {
 
   // ---------------- CW ----------------
   // Signal chain as in cw_decoder4/web: input BPF (Q=3, tracks the tone) -> worklet (8 kHz, wasm core).
+  // The decoder keeps what the core's frames carry: text, spectrum, scope columns, input level (drawn by cwview.js
+  // as cw_decoder4's web page does).
 
   // status[] indices (cw_decoder4 web/wasm/api.cpp cw_status_t)
-  const ST = { charN: 4, wpm: 5, toneHz: 6, toneAuto: 8, mode: 15, gate: 16, clip: 17 };
+  const ST = {
+    scopeTotal: 0, scopeFirst: 1, scopeLost: 2, scopeN: 3, charN: 4,
+    wpm: 5, toneHz: 6, toneIdx: 7, toneAuto: 8, peakHz: 9, gateBw: 10,
+    periodQ8: 11, colMsX10: 12, inputPeak: 13, inputPct: 14,
+    mode: 15, gate: 16, clip: 17,
+  };
+  const SPEC_BINS = 65;   // bin 0..64, 31.25 Hz each (8 kHz / 256)
+  const SR = 8192;        // scope column ring (as cw_decoder4 web/app.js)
   const BPF_Q = 3;
 
   // JIS X 0201 kana -> full-width katakana (same table as cw_decoder4 display.cpp)
@@ -2886,6 +2991,14 @@ const PlutoDecoders = (function () {
       this.status = null;
       this.chars = [];
       this.gain = 1;
+      this.spec = new Uint16Array(SPEC_BINS);
+      // scope columns (min / max raw, envelope, key gate), numbered from the core's running column count
+      this.sMn = new Int16Array(SR); this.sMx = new Int16Array(SR);
+      this.sMag = new Uint16Array(SR); this.sGate = new Uint8Array(SR);
+      this.sTotal = 0;
+      this.ticker = [];  // decoded characters at the scope column they ended on, { ch, col }
+      this.inRate = 0; this.inRateMs = 0; this.lastPushed = -1; this.lastT = 0; // input rate (8000 sps when nothing is lost)
+      this.lastClip = 0; this.clipMs = 0;
     }
 
     get active() { return !!this.node; }
@@ -2928,6 +3041,8 @@ const PlutoDecoders = (function () {
       bpf.frequency.value = this._bpfCenter();
       await ready;
       node.port.postMessage({ type: 'reset' });
+      // the core restarts its column count and input counter
+      this.sTotal = 0; this.ticker = []; this.lastPushed = -1; this.inRate = 0;
       this.dispatchEvent(new Event('state'));
     }
 
@@ -2944,7 +3059,7 @@ const PlutoDecoders = (function () {
     toggleMode() { this.node?.port.postMessage({ type: 'toggleMode' }); }
     cycleTone() { this.node?.port.postMessage({ type: 'cycleTone' }); }
     setGain(db) { this.gain = Math.pow(10, db / 20); this.node?.port.postMessage({ type: 'gain', value: this.gain }); }
-    clear() { this.chars = []; this.dispatchEvent(new Event('text')); }
+    clear() { this.chars = []; this.ticker = []; this.dispatchEvent(new Event('text')); }
 
     _bpfCenter() {
       const hz = this.toneHz;
@@ -2953,11 +3068,34 @@ const PlutoDecoders = (function () {
 
     _onFrame(m) {
       this.status = m.status;
+      this.spec = m.spec;
+      // scope columns into the ring
+      const n = m.status[ST.scopeN], first = m.colFirst, dv = new DataView(m.cols.buffer);
+      for (let i = 0; i < n; i++) {
+        const o = i * m.stride, k = (first + i) % SR;
+        this.sMn[k] = dv.getInt16(o, true); this.sMx[k] = dv.getInt16(o + 2, true);
+        this.sMag[k] = dv.getUint16(o + 4, true); this.sGate[k] = m.cols[o + 6];
+      }
+      if (n) this.sTotal = first + n;
       const nc = m.status[ST.charN];
       if (nc) {
-        for (let i = 0; i < nc; i++) this._putChar(m.chars[i * 8 + 4]);
+        const cv = new DataView(m.chars.buffer);
+        for (let i = 0; i < nc; i++) {
+          const ch = m.chars[i * 8 + 4];
+          this._putChar(ch);
+          if (ch !== 0x20) this.ticker.push({ ch, col: cv.getUint32(i * 8, true) });
+        }
+        if (this.ticker.length > 96) this.ticker = this.ticker.slice(-96);
         this.dispatchEvent(new Event('text'));
       }
+      // input rate from the frame-to-frame increase (below 8000: the audio thread is dropping input)
+      if (this.lastPushed >= 0 && m.t > this.lastT) {
+        const d = m.pushed - this.lastPushed, dt = m.t - this.lastT;
+        if (d > 0) { const r = d / dt; this.inRate = this.inRate ? this.inRate + (r - this.inRate) * 0.1 : r; this.inRateMs = performance.now(); }
+      }
+      this.lastPushed = m.pushed; this.lastT = m.t;
+      const clip = m.status[ST.clip];
+      if (clip !== this.lastClip) { this.lastClip = clip; this.clipMs = performance.now(); }
       if (this.bpf && this.ctx) {
         const f = this._bpfCenter();
         if (Math.abs(this.bpf.frequency.value - f) >= 1) this.bpf.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.05);
@@ -3097,7 +3235,527 @@ const PlutoDecoders = (function () {
     }
   }
 
-  return { CwDecoder, Ft8Decoder, ft8Wave, addWorklet };
+  return { CwDecoder, Ft8Decoder, ft8Wave, addWorklet, ST, codepointOf };
+})();
+</script>
+<script>// CW decoder display, as cw_decoder4's web page (web/app.js: drawFFT / drawScope / drawStatus / renderText, GPL —
+// see src/cwdec/README.md): status row, decoded text with the newest character highlighted, FFT spectrum and
+// oscilloscope with the same controls (click the FFT to pick the tone, double-click / click the scope for full width,
+// zoom, KEY / ENV / RAW). Taken from the FTX-1 Controller (js/cwview.js); drawn while visible() is true.
+
+const PlutoCwView = (function () {
+  'use strict';
+  const { ST, codepointOf } = PlutoDecoders;
+
+  const HZ_PER_BIN = 8000 / 256;
+  // the device's palette (display.cpp lgfx::color565 values)
+  const C = {
+    panelBg: '#020810', frame: '#283c55', label: '#647d9b',
+    eqFill: '#08412f', eqLine: '#3ce6a0', eqPeak: '#d2d7e1',
+    marker: '#324b82', band: '#0a182a', toneBand: '#463410',
+    raw: '#0082af', env: '#fac775', gate: '#5adc78',
+    lvlLo: '#2dc878', lvlMid: '#e6b43c', lvlHi: '#eb463c',
+  };
+  const EQ_BIN_START = 10, EQ_BAR_COUNT = 29; // bin 10 (312.5 Hz) .. bin 38 (1187.5 Hz)
+  const EQ_F_MIN = EQ_BIN_START * HZ_PER_BIN;
+  const EQ_F_MAX = (EQ_BIN_START + EQ_BAR_COUNT - 1) * HZ_PER_BIN;
+  const hzToX = (hz, x0, plotW) => x0 + ((hz - EQ_F_MIN) / (EQ_F_MAX - EQ_F_MIN)) * plotW;
+  const xToHz = (x, x0, plotW) => EQ_F_MIN + ((x - x0) / plotW) * (EQ_F_MAX - EQ_F_MIN);
+
+  // monotone cubic (Fritsch-Carlson) between the 29 FFT points: smooth, with no peaks or dips that are not in the data
+  function smoothCurve(ys, outN) {
+    const n = ys.length;
+    if (n < 3) return Float64Array.from(ys);
+    const d = new Float64Array(n - 1);
+    for (let i = 0; i < n - 1; i++) d[i] = ys[i + 1] - ys[i];
+    const m = new Float64Array(n);
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], ss = a * a + b * b;
+      if (ss > 9) { const t = 3 / Math.sqrt(ss); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+    }
+    const out = new Float64Array(outN);
+    for (let k = 0; k < outN; k++) {
+      const u = (k / (outN - 1)) * (n - 1), i = Math.min(n - 2, Math.floor(u));
+      const t = u - i, t2 = t * t, t3 = t2 * t;
+      out[k] = (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * m[i + 1];
+    }
+    return out;
+  }
+
+  function fitCanvas(cv) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(160, Math.round(cv.clientWidth)), h = Math.round(cv.clientHeight || 130);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { g, w, h };
+  }
+
+  class CwView {
+    // el: { text, fft, scope, fftCard, scopeCard, fftCap, scopeCap, scopeSpan, zoom, zoomV, bKey, bEnv, bRaw,
+    //       mode, tone, wpm, toneHz, peakHz, lvlBar, lvlTx, clip, inRate, copy, clear }
+    constructor(dec, el, visible) {
+      this.dec = dec; this.el = el;
+      this.dispMax = 8000; this.bar = new Float32Array(EQ_BAR_COUNT);
+      this.peakPx = new Float32Array(EQ_BAR_COUNT); this.peakTtl = new Uint8Array(EQ_BAR_COUNT);
+      this.showKey = true; this.showEnv = true; this.showRaw = true;
+      this.rawMax = 100; this.envMax = 500; this.zoom = 2;
+      this.peakHold = 0; this.peakMs = 0;
+      this.expanded = null; // null | 'fft' | 'scope'
+      this.tHead = document.createElement('span');
+      this.tNew = document.createElement('span'); this.tNew.className = 'new';
+      el.text.append(this.tHead, this.tNew);
+      dec.addEventListener('text', () => this.renderText());
+      this._wire();
+      const loop = () => { if (visible()) this.draw(); requestAnimationFrame(loop); };
+      requestAnimationFrame(loop);
+    }
+
+    renderText() {
+      const t = this.el.text, chars = this.dec.chars;
+      const atBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 40;
+      this.tHead.textContent = chars.length ? String.fromCodePoint(...chars.slice(0, -1)) : '';
+      this.tNew.textContent = chars.length ? String.fromCodePoint(chars[chars.length - 1]) : '';
+      if (atBottom) t.scrollTop = t.scrollHeight;
+    }
+
+    draw() {
+      this.drawStatus();
+      if (this.expanded !== 'scope') this.drawFFT();
+      if (this.expanded !== 'fft') this.drawScope();
+    }
+
+    drawFFT() {
+      const { g, w, h } = fitCanvas(this.el.fft);
+      const st = this.dec.status || [], spec = this.dec.spec;
+      const x0 = 10, plotW = w - 20, top = 12, baseY = h - 26, plotH = baseY - top;
+      g.fillStyle = C.panelBg; g.fillRect(0, 0, w, h);
+      g.strokeStyle = C.frame; g.lineWidth = 1; g.strokeRect(0.5, 0.5, w - 1, h - 1);
+      // TONE selection range (600-1000 Hz)
+      const xLo = hzToX(600, x0, plotW), xHi = hzToX(1000, x0, plotW);
+      g.fillStyle = C.band; g.fillRect(xLo, top - 4, xHi - xLo, plotH + 8);
+      g.strokeStyle = C.marker;
+      g.beginPath(); g.moveTo(xLo, top - 4); g.lineTo(xLo, baseY + 4); g.moveTo(xHi, top - 4); g.lineTo(xHi, baseY + 4); g.stroke();
+      // detection band of the selected tone (one Goertzel bin, follows WPM)
+      const toneHz = st[ST.toneHz] || 600, halfBw = (st[ST.gateBw] || 67) / 2;
+      const xc = hzToX(toneHz, x0, plotW), xbl = hzToX(toneHz - halfBw, x0, plotW), xbr = hzToX(toneHz + halfBw, x0, plotW);
+      g.fillStyle = C.toneBand; g.fillRect(xbl, top - 4, xbr - xbl, plotH + 8);
+      g.strokeStyle = C.env;
+      g.beginPath(); g.moveTo(xbl, top - 4); g.lineTo(xbl, baseY + 4); g.moveTo(xbr, top - 4); g.lineTo(xbr, baseY + 4); g.stroke();
+      // AGC: follows the frame maximum slowly
+      let fmax = 0;
+      for (let b = 0; b < EQ_BAR_COUNT; b++) fmax = Math.max(fmax, spec[EQ_BIN_START + b] || 0);
+      this.dispMax += (fmax * 1.15 - this.dispMax) * 0.05;
+      if (this.dispMax < 8000) this.dispMax = 8000;
+      const { bar, peakPx, peakTtl } = this, yPt = new Float32Array(EQ_BAR_COUNT);
+      for (let b = 0; b < EQ_BAR_COUNT; b++) {
+        let t = ((spec[EQ_BIN_START + b] || 0) / this.dispMax) * plotH;
+        if (t > plotH) t = plotH;
+        bar[b] += (t - bar[b]) * (t >= bar[b] ? 0.7 : 0.35);
+        yPt[b] = baseY - bar[b];
+        if (bar[b] >= peakPx[b]) { peakPx[b] = bar[b]; peakTtl[b] = 25; } else if (peakTtl[b] > 0) peakTtl[b]--; else if (peakPx[b] > 0) peakPx[b] -= plotH / 42;
+      }
+      const bx = (b) => x0 + (b / (EQ_BAR_COUNT - 1)) * plotW;
+      const curve = smoothCurve(yPt, Math.max(EQ_BAR_COUNT, Math.round(plotW / 2) + 1));
+      const cx = (i) => x0 + (i / (curve.length - 1)) * plotW;
+      g.fillStyle = C.eqFill;
+      g.beginPath(); g.moveTo(cx(0), baseY);
+      for (let i = 0; i < curve.length; i++) g.lineTo(cx(i), curve[i]);
+      g.lineTo(cx(curve.length - 1), baseY); g.closePath(); g.fill();
+      g.strokeStyle = C.eqLine; g.lineWidth = 1.5;
+      g.beginPath();
+      for (let i = 0; i < curve.length; i++) (i ? g.lineTo : g.moveTo).call(g, cx(i), curve[i]);
+      g.stroke();
+      g.strokeStyle = C.eqPeak; g.lineWidth = 1;
+      g.beginPath();
+      for (let b = 0; b < EQ_BAR_COUNT; b++) {
+        if (peakPx[b] <= 1) continue;
+        const y = Math.round(baseY - peakPx[b]) + 0.5;
+        g.moveTo(bx(b) - 3, y); g.lineTo(bx(b) + 3, y);
+      }
+      g.stroke();
+      // centre marker of the selected tone
+      g.fillStyle = C.env;
+      g.beginPath(); g.moveTo(xc, baseY + 3); g.lineTo(xc - 4, baseY + 10); g.lineTo(xc + 4, baseY + 10); g.closePath(); g.fill();
+      g.fillStyle = C.label; g.font = '10px ui-monospace, monospace'; g.textAlign = 'center';
+      for (const f of [400, 600, 800, 1000, 1200]) {
+        if (f < EQ_F_MIN || f > EQ_F_MAX) continue;
+        g.fillText(f >= 1000 ? `${f / 1000}k` : String(f), hzToX(f, x0, plotW), h - 8);
+      }
+      g.textAlign = 'left';
+    }
+
+    drawScope() {
+      const { g, w, h } = fitCanvas(this.el.scope);
+      const d = this.dec, st = d.status || [], SRN = d.sMn.length, sTotal = d.sTotal;
+      g.fillStyle = C.panelBg; g.fillRect(0, 0, w, h);
+      g.strokeStyle = C.frame; g.lineWidth = 1; g.strokeRect(0.5, 0.5, w - 1, h - 1);
+      // zoom 1 = one column per pixel (as the device); wider columns show short elements better
+      const x0 = 4, zoom = this.zoom;
+      const cols = Math.max(16, Math.floor((w - 8) / zoom)), start = Math.max(0, sTotal - cols);
+      const colL = (i) => Math.round(x0 + (i - start) * zoom);
+      const colW = (i) => Math.max(1, colL(i + 1) - colL(i));
+      const colC = (i) => colL(i) + colW(i) / 2;
+      const textH = 22, keyY = textH + 4, waveTop = keyY + 10, waveBot = h - 8;
+      const midY = (waveTop + waveBot) / 2, halfH = (waveBot - waveTop) / 2;
+      let rmax = 0, emax = 0;
+      for (let i = start; i < sTotal; i++) { const k = i % SRN; rmax = Math.max(rmax, Math.abs(d.sMx[k]), Math.abs(d.sMn[k])); emax = Math.max(emax, d.sMag[k]); }
+      this.rawMax += (rmax * 1.1 - this.rawMax) * 0.1; if (this.rawMax < 60) this.rawMax = 60;
+      this.envMax += (emax * 1.1 - this.envMax) * 0.1; if (this.envMax < 400) this.envMax = 400;
+      if (this.showRaw) {
+        g.strokeStyle = '#142837';
+        g.beginPath(); g.moveTo(x0, midY + 0.5); g.lineTo(x0 + cols * zoom, midY + 0.5); g.stroke();
+        g.fillStyle = C.raw;
+        for (let i = start; i < sTotal; i++) {
+          const k = i % SRN;
+          let y1 = midY - (d.sMx[k] / this.rawMax) * halfH, y2 = midY - (d.sMn[k] / this.rawMax) * halfH;
+          y1 = Math.max(waveTop, y1); y2 = Math.min(waveBot, y2);
+          if (y2 < y1) [y1, y2] = [y2, y1];
+          g.fillRect(colL(i), y1, colW(i), y2 - y1 + 1);
+        }
+      }
+      if (this.showEnv) {
+        g.strokeStyle = C.env; g.lineWidth = 1.2;
+        g.beginPath();
+        let started = false;
+        for (let i = start; i < sTotal; i++) {
+          const k = i % SRN, x = colC(i);
+          const y = waveBot - Math.min(waveBot - waveTop, (d.sMag[k] / this.envMax) * (waveBot - waveTop));
+          if (!started) { g.moveTo(x, y); started = true; } else g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+      if (this.showKey) {
+        g.fillStyle = C.gate;
+        for (let i = start; i < sTotal; i++) if (d.sGate[i % SRN]) g.fillRect(colL(i), keyY, colW(i), 4);
+        // decoded characters at the middle of their elements, sweeping left with the trace
+        g.fillStyle = '#adff2f';
+        g.font = '15px "Hiragino Sans", "Noto Sans JP", sans-serif';
+        g.textAlign = 'center';
+        for (const t of d.ticker) {
+          if (t.col < start || t.col >= sTotal) continue;
+          g.fillText(String.fromCodePoint(codepointOf(t.ch)), colC(t.col), textH - 4);
+        }
+        g.textAlign = 'left';
+      }
+      const ms = (st[ST.colMsX10] || 0) / 10;
+      this.el.scopeSpan.textContent = ms > 0 ? `${((cols * ms) / 1000).toFixed(1)}s / ${ms.toFixed(1)}ms/col` : '';
+    }
+
+    drawStatus() {
+      const st = this.dec.status, el = this.el;
+      if (!st) return;
+      el.wpm.textContent = st[ST.wpm] || '--';
+      el.toneHz.textContent = st[ST.toneHz] || '---';
+      // Peak drops to 0 between elements: hold the last value for a second, as the device does
+      const now = performance.now();
+      if (st[ST.peakHz]) { this.peakHold = st[ST.peakHz]; this.peakMs = now; }
+      el.peakHz.textContent = this.peakHold && now - this.peakMs < 1000 ? `${this.peakHold}Hz` : '----';
+      el.mode.textContent = st[ST.mode] ? 'JP' : 'US';
+      el.mode.classList.toggle('jp', !!st[ST.mode]);
+      el.tone.textContent = st[ST.toneAuto] ? 'AUTO' : `${st[ST.toneHz]}Hz`;
+      el.tone.style.color = st[ST.toneAuto] ? C.gate : '';
+      // input level, dBFS (0 dBFS = full scale)
+      const pk = st[ST.inputPeak], db = pk > 0 ? 20 * Math.log10(pk / 2048) : -60, shown = Math.max(-50, Math.min(0, db));
+      el.lvlBar.style.width = `${((shown + 50) / 50) * 100}%`;
+      el.lvlBar.style.background = db >= -2.5 ? C.lvlHi : db >= -5.2 ? C.lvlMid : C.lvlLo;
+      el.lvlTx.textContent = pk > 0 ? `${db.toFixed(1)} dBFS` : '-inf dBFS';
+      el.clip.style.visibility = this.dec.clipMs && now - this.dec.clipMs < 500 ? 'visible' : 'hidden';
+      // input rate; red when input is being dropped (WPM and element lengths would be off)
+      if (now - this.dec.inRateMs > 1500) el.inRate.textContent = '';
+      else if (this.dec.inRate > 0) {
+        const off = (this.dec.inRate / 8000 - 1) * 100;
+        el.inRate.textContent = `${this.dec.inRate.toFixed(0)} sps`;
+        el.inRate.style.color = Math.abs(off) > 0.5 ? '#ff9a8f' : '';
+        el.inRate.title = `実効入力レート (正常 8000 sps、ずれ ${off.toFixed(2)}%)`;
+      }
+    }
+
+    setExpanded(which) {
+      this.expanded = this.expanded === which ? null : which;
+      const { fftCard, scopeCard } = this.el;
+      fftCard.classList.toggle('wide', this.expanded === 'fft');
+      fftCard.classList.toggle('hidden', this.expanded === 'scope');
+      scopeCard.classList.toggle('wide', this.expanded === 'scope');
+      scopeCard.classList.toggle('hidden', this.expanded === 'fft');
+    }
+
+    _wire() {
+      const { el, dec } = this;
+      el.mode.addEventListener('click', () => dec.toggleMode());
+      el.tone.addEventListener('click', () => dec.cycleTone());
+      for (const [cap, which] of [[el.fftCap, 'fft'], [el.scopeCap, 'scope']]) {
+        cap.addEventListener('click', (e) => { if (!e.target.closest('button, input, select, label')) this.setExpanded(which); });
+      }
+      el.scope.addEventListener('click', () => this.setExpanded('scope'));
+      // FFT click picks the tone (as a tap on the device's FFT panel); full width is the double-click, so the pick
+      // waits 250 ms and is cancelled by one
+      let timer = null;
+      el.fft.addEventListener('click', (e) => {
+        if (timer) return;
+        const r = el.fft.getBoundingClientRect(), x = e.clientX - r.left, w = r.width;
+        timer = setTimeout(() => { timer = null; dec.setToneHz(xToHz(x, 10, w - 20)); }, 250);
+      });
+      el.fft.addEventListener('dblclick', () => { clearTimeout(timer); timer = null; this.setExpanded('fft'); });
+      el.zoom.value = this.zoom;
+      el.zoom.addEventListener('input', () => { this.zoom = +el.zoom.value; el.zoomV.textContent = this.zoom.toFixed(1); });
+      const trace = (btn, key) => btn.addEventListener('click', () => { this[key] = !this[key]; btn.classList.toggle('on', this[key]); });
+      trace(el.bKey, 'showKey'); trace(el.bEnv, 'showEnv'); trace(el.bRaw, 'showRaw');
+      el.copy.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(dec.text);
+        el.copy.textContent = 'コピーしました';
+        setTimeout(() => { el.copy.textContent = 'コピー'; }, 1200);
+      });
+      el.clear.addEventListener('click', () => dec.clear());
+    }
+  }
+
+  return CwView;
+})();
+</script>
+<script>// CW transmit from text, taken from the FTX-1 Controller (js/cwsend.js): the elements are timed here at the key speed
+// and handed to a key, key(down, t) with t in performance.now() ms (here: the CW modulator's key events, which keep
+// that timing). Characters go out one at a time, so everything after the character on air stays editable. In the
+// editor, sent text is locked and coloured (sent / on air) by a backdrop behind the transparent textarea; when the
+// transmission ends (or is stopped) its line moves to the log above.
+
+const PlutoCwSender = (function () {
+  'use strict';
+
+  const MORSE = {
+    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..',
+    M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-',
+    Y: '-.--', Z: '--..', 0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...',
+    8: '---..', 9: '----.', '/': '-..-.', '?': '..--..', '.': '.-.-.-', ',': '--..--', '=': '-...-', '+': '.-.-.',
+    '-': '-....-', '@': '.--.-.', '(': '-.--.', ')': '-.--.-', "'": '.----.', '"': '.-..-.', '!': '-.-.--', ':': '---...',
+    '&': '.-...',
+  };
+  // Wabun (Japanese) codes, as cw_decoder4's decoder table (src/decode.cpp jp_code) plus ヰ / ヱ
+  const KANA = {
+    ア: '--.--', イ: '.-', ウ: '..-', エ: '-.---', オ: '.-...', カ: '.-..', キ: '-.-..', ク: '...-', ケ: '-.--', コ: '----',
+    サ: '-.-.-', シ: '--.-.', ス: '---.-', セ: '.---.', ソ: '---.', タ: '-.', チ: '..-.', ツ: '.--.', テ: '.-.--', ト: '..-..',
+    ナ: '.-.', ニ: '-.-.', ヌ: '....', ネ: '--.-', ノ: '..--', ハ: '-...', ヒ: '--..-', フ: '--..', ヘ: '.', ホ: '-..',
+    マ: '-..-', ミ: '..-.-', ム: '-', メ: '-...-', モ: '-..-.', ヤ: '.--', ユ: '-..--', ヨ: '--', ラ: '...', リ: '--.',
+    ル: '-.--.', レ: '---', ロ: '.-.-', ワ: '-.-', ヰ: '.-..-', ヱ: '.--..', ヲ: '.---', ン: '.-.-.',
+    '゛': '..', '゜': '..--.', 'ー': '.--.-', '、': '.-.-.-', '」': '.-.-..',
+  };
+  const SMALL = { ァ: 'ア', ィ: 'イ', ゥ: 'ウ', ェ: 'エ', ォ: 'オ', ッ: 'ツ', ャ: 'ヤ', ュ: 'ユ', ョ: 'ヨ', ヮ: 'ワ', ヵ: 'カ', ヶ: 'ケ' };
+
+  // switching between Latin (欧文) and Wabun (和文): ホレ before the first kana, ラタ before the first Latin letter after it
+  const HORE = '-..---', RATA = '...-.';
+
+  // what one typed character is sent as: full-width letters / digits become half-width (NFKC), hiragana and half-width
+  // kana become katakana, small kana full size, and a voiced kana its base kana + ゛ / ゜ (ガ -> カ ゛).
+  // Returns { codes, chars (the character each code stands for), kind: 'jp' (kana) | 'us' (Latin letter) | null (digits,
+  // signs: both) }, or null when it cannot be sent.
+  function codesOf(ch) {
+    let c = ch.normalize('NFKC').toUpperCase();
+    c = [...c].map((x) => (x >= 'ぁ' && x <= 'ゖ' ? String.fromCharCode(x.charCodeAt(0) + 0x60) : x)).join('');
+    const codes = [], chars = [];
+    let kind = null;
+    for (let x of c.normalize('NFD')) {
+      x = x === '\u3099' ? '゛' : x === '\u309A' ? '゜' : SMALL[x] || x;
+      const code = MORSE[x] || KANA[x];
+      if (!code) return null;
+      if (KANA[x] && !MORSE[x]) kind = 'jp'; else if (/[A-Z]/.test(x)) kind = 'us';
+      codes.push(code); chars.push(x);
+    }
+    return codes.length ? { codes, chars, kind } : null;
+  }
+
+  const WORD_GAP = 7;      // units between words (3 between characters)
+  const IDLE_MS = 2000;    // the transmission ends after this long with nothing more typed
+  const MAX_LINES = 200;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // wait until performance.now() reaches t: a timer for most of it, then a short spin for the last few ms
+  // (timers alone are late by several ms, which shows at CW speeds)
+  async function until(t) {
+    const d = t - performance.now();
+    if (d > 4) await sleep(d - 3);
+    while (performance.now() < t) { /* spin */ }
+  }
+
+  class CwSender extends EventTarget {
+    // el: { editor (textarea), back (its coloured backdrop), log (div, finished transmissions) }
+    // keyer(): the key as (down, t) => {}, or null when keying is not possible; wpm(): the key speed
+    constructor(el, keyer, wpm) {
+      super();
+      this.el = el; this.keyer = keyer; this.wpm = wpm;
+      this.setKey = null;     // the key line of the transmission in progress
+      this.active = false;
+      this.lastKey = 0;
+      this.pos = 0;           // editor text before this has been taken for sending (locked)
+      this.sentEnd = 0;       // ... and before this has been keyed
+      this.cur = null;        // { start } of the character on air
+      this.aborted = 0;       // end of the character that STOP cut off
+      this.mode = 'us';       // Latin or Wabun on the air now (kept between transmissions)
+      this.out = [];          // what went out, for the log: { text, space (word gap before), pro, el (its span in the log) }
+      this.line = null;       // the log line of the transmission in progress
+      const ed = el.editor;
+      // the locked part cannot be changed: edits starting in it are refused and the caret goes after it
+      ed.addEventListener('beforeinput', (e) => {
+        const backAtEdge = /^delete.*Backward$/.test(e.inputType) && this.pos && ed.selectionStart === this.pos && ed.selectionEnd === this.pos;
+        if (ed.selectionStart < this.pos || backAtEdge) {
+          e.preventDefault();
+          ed.setSelectionRange(ed.value.length, ed.value.length);
+        }
+      });
+      this.locked = '';
+      this.good = '';         // the editor text after the last accepted change
+      ed.addEventListener('input', () => {
+        // (IME input cannot be refused beforehand: undo a change that reached into the locked part)
+        if (this.pos && !ed.value.startsWith(this.locked)) ed.value = this.good;
+        this.lastKey = Date.now();
+        this._paint();
+      });
+      ed.addEventListener('scroll', () => { el.back.scrollTop = ed.scrollTop; });
+      this._paint();
+    }
+
+    // start sending; false when keying is not possible
+    start() {
+      if (this.active) return true;
+      this.setKey = this.keyer();
+      if (!this.setKey) return false;
+      this.active = true;
+      this.dispatchEvent(new Event('state'));
+      this._run();
+      return true;
+    }
+
+    stop() {
+      if (!this.active) return;
+      this.active = false;
+      try { this.setKey?.(false, performance.now()); } catch (e) { /* ignore */ }
+      if (this.cur) this.aborted = this.cur.start + 1; // the character on air did not go out complete
+      this.dispatchEvent(new Event('state'));
+    }
+
+    async _run() {
+      const key = this.setKey;
+      let tEnd = 0; // end of the previous character's last element
+      try {
+        while (this.active) {
+          const c = this._takeChar();
+          if (!c) {
+            // nothing more: wait for typing, end after IDLE_MS without it
+            if (Date.now() - this.lastKey >= IDLE_MS) break;
+            await sleep(20);
+            continue;
+          }
+          if (!c.codes) continue; // cannot be sent: ignored (not in the log either)
+          const unit = 1200 / (this.wpm() || 20), gap = (c.space ? WORD_GAP : 3) * unit;
+          // 3 units between characters, 7 after a space; never in the past (waiting for typing)
+          let t = Math.max(tEnd ? tEnd + gap : 0, performance.now() + 5);
+          let codes = c.codes, pro = false;
+          const out = [{ text: c.chars.join(''), space: c.space, cls: 'cw-pend' }];
+          // changing between Latin and Wabun: ホレ / ラタ first, as a word of its own (or a character, inside a word)
+          if (c.kind && c.kind !== this.mode) {
+            pro = true;
+            codes = [c.kind === 'jp' ? HORE : RATA, ...codes];
+            out.unshift({ text: c.kind === 'jp' ? 'ホレ' : 'ラタ', space: c.space, cls: 'cw-pend', pro: true });
+            this.mode = c.kind;
+          }
+          out.forEach((o) => this._logAdd(o));
+          // (a voiced kana is two codes: its base kana and ゛ / ゜, 3 units apart)
+          for (let j = 0; j < codes.length && this.active; j++) {
+            const code = codes[j];
+            if (j) t += j === 1 && pro ? gap : 3 * unit;
+            for (let k = 0; k < code.length && this.active; k++) {
+              if (k) t += unit;
+              await until(t);
+              if (!this.active) break;
+              await key(true, t);
+              t += (code[k] === '.' ? 1 : 3) * unit;
+              await until(t);
+              await key(false, t);
+            }
+          }
+          tEnd = t;
+          if (this.active) { out.forEach((o) => this._logSet(o, 'cw-sent')); this.sentEnd = this.pos; this.cur = null; this._paint(); }
+        }
+      } catch (e) {
+        this.active = false;
+        this.dispatchEvent(new CustomEvent('error', { detail: e }));
+      }
+      try { await key(false, performance.now()); } catch (e) { /* ignore */ }
+      this._finish();
+    }
+
+    // next character after the locked part; whitespace before it means a word gap
+    _takeChar() {
+      const v = this.el.editor.value, m = /^(\s*)(\S)/.exec(v.slice(this.pos));
+      if (!m) return null;
+      const start = this.pos + m[1].length, codes = codesOf(m[2]);
+      this.pos = start + 1;
+      this.locked = v.slice(0, this.pos);
+      this.cur = codes ? { start } : null;
+      if (!codes) this.sentEnd = this.pos;
+      this._paint();
+      return { codes: codes?.codes, chars: codes?.chars, kind: codes?.kind, space: m[1].length > 0 };
+    }
+
+    // the transmission is over: its line goes to the log, what was not sent stays in the editor
+    _finish() {
+      const ed = this.el.editor, v = ed.value;
+      if (this.pos) {
+        for (const o of this.out) if (o.cls === 'cw-pend') this._logSet(o, 'cw-abort'); // STOP cut it off
+        ed.value = v.slice(Math.max(this.pos, this.aborted)).replace(/^\s+/, '');
+      }
+      this.out = [];
+      this.line = null;
+      this.pos = this.sentEnd = this.aborted = 0;
+      this.locked = '';
+      this.cur = null;
+      this.setKey = null;
+      this.active = false;
+      this.dispatchEvent(new Event('state'));
+      this._paint();
+    }
+
+    // the log, as it goes out: one line per transmission, characters as sent (half-width, katakana, カ゛ for ガ),
+    // ホレ / ラタ where inserted; characters that cannot be sent are not there
+    _logAdd(o) {
+      const log = this.el.log;
+      const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+      if (!this.line) {
+        this.line = document.createElement('div');
+        this.line.className = 'cw-line';
+        const t = document.createElement('span');
+        t.className = 'cw-time';
+        t.textContent = `${new Date().toISOString().slice(11, 19)} `;
+        this.line.append(t);
+        log.append(this.line);
+        while (log.childElementCount > MAX_LINES) log.firstElementChild.remove();
+      }
+      const prev = this.out[this.out.length - 1];
+      o.el = document.createElement('span');
+      o.el.textContent = `${prev && (o.space || o.pro || prev.pro) ? ' ' : ''}${o.text}`;
+      this.out.push(o);
+      this._logSet(o, 'cw-pend');
+      this.line.append(o.el);
+      if (atBottom) log.scrollTop = log.scrollHeight;
+    }
+    _logSet(o, cls) {
+      o.cls = cls;
+      o.el.className = o.pro && cls === 'cw-sent' ? 'cw-pro' : cls;
+    }
+
+    // backdrop: sent | on air | editable (the textarea's own text is transparent)
+    _paint() {
+      const v = this.el.editor.value, back = this.el.back;
+      this.good = v;
+      const parts = [[0, this.sentEnd, 'cw-sent'], [this.sentEnd, this.pos, 'cw-pend'], [this.pos, v.length, 'cw-edit']];
+      back.replaceChildren(...parts.map(([a, b, cls]) => { const x = document.createElement('span'); x.className = cls; x.textContent = v.slice(a, b); return x; }),
+        '\n'); // (a trailing line break so the backdrop scrolls as far as the textarea)
+      back.scrollTop = this.el.editor.scrollTop;
+    }
+  }
+
+  return CwSender;
 })();
 </script>
 <script>// Pluto SDR Nano — UI, stream control, rendering and wideband scan.
@@ -3151,7 +3809,7 @@ const PlutoDecoders = (function () {
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
-    audioOut: '', audioIn: '', decoder: '', decFrac: 0.4, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
+    audioOut: '', audioIn: '', decoder: '', decFrac: 0.46, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
     ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
 
@@ -4353,7 +5011,7 @@ const PlutoDecoders = (function () {
   // and the transmitter drops out CW_HANG ms after the last key-up.
   function txKey(down, force) {
     // The key during a CW text or an FT8 / FT4 transmission stops it; so does anything forcing TX off.
-    if ((down || force) && (cw.sending || ft.cur)) { digiStop(); if (down) return; }
+    if ((down || force) && (cwSender.active || ft.cur)) { digiStop(); if (down) return; }
     if (down) {
       const why = txBlocked();
       if (why) { toast(why); return; }
@@ -4361,12 +5019,7 @@ const PlutoDecoders = (function () {
     if (tx.keyDown === down && !force) return;
     tx.keyDown = down;
     if (S.mode === 'CW' && !force) {
-      clearTimeout(tx.hang);
-      if (down && !tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
-      txWorker.postMessage({ type: 'key', down, t: performance.now() });
-      sidetone(down);
-      if (down) { tx.want = true; txKick(); }
-      else tx.hang = setTimeout(() => { if (!tx.keyDown) { tx.want = false; txKick(); } }, CW_HANG);
+      cwKey(down, performance.now());
     } else {
       sidetone(false);
       clearTimeout(tx.hang);
@@ -5564,7 +6217,7 @@ const PlutoDecoders = (function () {
     $('decPane').hidden = $('decSplitter').hidden = !want;
     $('decPane').dataset.kind = want === 'CW' ? 'cw' : 'ft8';
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.classList.toggle('active', b.dataset.dec === want));
-    if (want !== 'CW') { cwDec.stop(); if (cw.sending) cwStop(); }
+    if (want !== 'CW') { cwDec.stop(); cwSender.stop(); }
     if (!isFt(want)) { ft8Dec.stop(); ftHalt(); }
     else if (ft8Dec.mode !== want) {
       // FT8 <-> FT4: TX stops, the list starts over (slot numbers differ)
@@ -5600,89 +6253,25 @@ const PlutoDecoders = (function () {
 
   // Stops a CW text or an FT8 / FT4 transmission (PTT key, time-out, window hidden, retune).
   function digiStop() {
-    if (cw.sending) cwStop();
+    cwSender.stop();
     ftHalt();
   }
 
   // ---- CW text ----
-  const MORSE = {
-    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..',
-    M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-',
-    Y: '-.--', Z: '--..', 0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...',
-    8: '---..', 9: '----.', '.': '.-.-.-', ',': '--..--', '?': '..--..', '/': '-..-.', '=': '-...-', '+': '.-.-.', '-': '-....-',
-    '(': '-.--.', ')': '-.--.-', "'": '.----.', '"': '.-..-.', ':': '---...', ';': '-.-.-.', '@': '.--.-.', '!': '-.-.--',
-  };
-  const cw = { sending: false };
-  // Key-down intervals in seconds: dot = 1.2 / WPM, dash 3, gaps 1 / 3 / 7 dots. Unknown characters are skipped.
-  function morseMarks(text, wpm) {
-    const dot = 1.2 / wpm, marks = [];
-    let t = 0;
-    for (const w of text.split(' ')) {
-      let any = false;
-      for (const ch of w) {
-        const code = MORSE[ch];
-        if (!code) continue;
-        for (const el of code) { const d = el === '.' ? dot : 3 * dot; marks.push([t, t + d]); t += d + dot; }
-        t += 2 * dot;
-        any = true;
-      }
-      if (any) t += 4 * dot;
-    }
-    return { marks, end: marks.length ? marks[marks.length - 1][1] : 0 };
-  }
+  // The sender (cwsend.js, from the FTX-1 Controller) times the elements and keys the CW modulator through cwKey,
+  // the Space key's path, with each event's time.
+  let cwSender = null;
+  const cwKeyProblem = () => (S.mode !== 'CW' ? 'CW モードにしてください' : txBlocked());
 
-  async function cwSend(text) {
-    text = text.toUpperCase().replace(/\s+/g, ' ').trim();
-    if (!text) return;
-    if (S.mode !== 'CW') { toast('CW の送信は CW モードで行ってください'); return; }
-    const why = txBlocked();
-    if (why) { toast(why); return; }
-    const { marks, end } = morseMarks(text, S.cwWpm);
-    if (!marks.length) return;
-    // A text already on the air is replaced: wait until it has stopped.
-    if (cw.sending) {
-      cwStop();
-      for (let i = 0; i < 150 && (tx.on || tx.busy); i++) await new Promise((r) => setTimeout(r, 20));
-    }
-    cw.sending = true;
-    cwDraw();
+  // CW key event at t (performance.now() ms); the transmitter drops out CW_HANG ms after the last key-up.
+  function cwKey(down, t) {
     clearTimeout(tx.hang);
-    if (!tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
-    tx.want = true;
-    await txKick();
-    while (tx.busy) await new Promise((r) => setTimeout(r, 20));
-    if (!cw.sending) return;
-    if (!tx.on) { cw.sending = false; cwDraw(); return; }
-    // Key events in performance.now() ms; the TX worker keeps their spacing. The sidetone follows
-    // the same timeline (the modulator adds about 80 ms).
-    const t0 = performance.now() + 20;
-    sidetone(false);
-    const g = tx.side.gain, c0 = audio.ctx.currentTime + 0.1, lvl = 0.15 * S.volume;
-    g.cancelScheduledValues(audio.ctx.currentTime);
-    for (const [a, b] of marks) {
-      txWorker.postMessage({ type: 'key', down: true, t: t0 + a * 1000 });
-      txWorker.postMessage({ type: 'key', down: false, t: t0 + b * 1000 });
-      g.setTargetAtTime(lvl, c0 + a, 0.003);
-      g.setTargetAtTime(0, c0 + b, 0.003);
-    }
-    tx.hang = setTimeout(() => {
-      cw.sending = false;
-      cwDraw();
-      if (!tx.keyDown) { tx.want = false; txKick(); }
-    }, 100 + end * 1000 + CW_HANG);
+    if (down && !tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
+    txWorker.postMessage({ type: 'key', down, t });
+    sidetone(down);
+    if (down) { if (!tx.want) { tx.want = true; txKick(); } }
+    else tx.hang = setTimeout(() => { if (!tx.keyDown) { tx.want = false; txKick(); } }, CW_HANG);
   }
-
-  function cwStop() {
-    clearTimeout(tx.hang);
-    cw.sending = false;
-    if (tx.side) { tx.side.gain.cancelScheduledValues(audio.ctx.currentTime); tx.side.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.003); }
-    tx.keyDown = false;
-    tx.want = false;
-    txKick();
-    cwDraw();
-  }
-
-  function cwDraw() { $('cwSend').classList.toggle('active', cw.sending); }
 
   // ---- FT8 / FT4 ----
   // Tx1-Tx6 as in WSJT-X: 1 call with grid, 2 report, 3 R+report, 4 RR73, 5 73, 6 CQ.
@@ -5880,39 +6469,58 @@ const PlutoDecoders = (function () {
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.addEventListener('click', () => setDecoder(b.dataset.dec)));
     $('decOff').addEventListener('click', () => setDecoder(''));
 
-    // CW receive
-    const cwText = $('cwText');
-    cwDec.addEventListener('text', () => {
-      const atBottom = cwText.scrollHeight - cwText.scrollTop - cwText.clientHeight < 30;
-      cwText.textContent = cwDec.text;
-      if (atBottom) cwText.scrollTop = cwText.scrollHeight;
-    });
-    $('cwMode').addEventListener('click', () => cwDec.toggleMode());
-    $('cwTone').addEventListener('click', () => cwDec.cycleTone());
-    $('cwClr').addEventListener('click', () => cwDec.clear());
+    // CW receive: display and controls as cw_decoder4's web page (cwview.js)
+    new PlutoCwView(cwDec, {
+      text: $('cwText'), fft: $('cwFft'), scope: $('cwScope'),
+      fftCard: $('cwFftCard'), scopeCard: $('cwScopeCard'), fftCap: $('cwFftCap'), scopeCap: $('cwScopeCap'),
+      scopeSpan: $('cwScopeSpan'), zoom: $('cwZoom'), zoomV: $('cwZoomV'), bKey: $('cwKey'), bEnv: $('cwEnv'), bRaw: $('cwRaw'),
+      mode: $('cwMode'), tone: $('cwTone'), wpm: $('cwWpmRx'), toneHz: $('cwToneHz'), peakHz: $('cwPeak'),
+      lvlBar: $('cwLvlBar'), lvlTx: $('cwLvl'), clip: $('cwClip'), inRate: $('cwRate'), copy: $('cwCopy'), clear: $('cwClr'),
+    }, () => S.decoder === 'CW');
     const cwGainLabel = () => { $('cwGainVal').textContent = `${S.cwGain > 0 ? '+' : ''}${S.cwGain} dB`; };
     $('cwGain').value = S.cwGain;
     cwGainLabel();
     cwDec.setGain(S.cwGain);
     $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
 
-    // CW transmit: SEND / STOP and memories M1-M5 (click: send, Shift+click: store the text box)
-    $('cwSend').addEventListener('click', () => cwSend($('cwTxText').value));
-    $('cwStop').addEventListener('click', () => { if (cw.sending) cwStop(); });
-    $('cwWpm').value = S.cwWpm;
-    $('cwWpm').addEventListener('change', (e) => { S.cwWpm = clamp(Math.round(+e.target.value || 20), 5, 50); e.target.value = S.cwWpm; save(); });
+    // CW transmit: the editor keeps sent text locked and coloured, the rest stays editable while sending; finished
+    // lines go to the log. SEND / Enter sends, STOP stops, M1-M5 queue a stored text (Shift+click stores the editor).
+    const editor = $('cwTxText');
+    cwSender = new PlutoCwSender({ editor, back: $('cwBack'), log: $('cwLog') }, () => (cwKeyProblem() ? null : cwKey), () => S.cwWpm);
+    cwSender.addEventListener('state', () => $('cwSend').classList.toggle('active', cwSender.active));
+    const cwStart = () => {
+      if (!editor.value.trim()) return;
+      const why = cwKeyProblem();
+      if (why) { toast('CW を送信できません: ' + why); return; }
+      cwSender.start();
+    };
+    $('cwSend').addEventListener('click', cwStart);
+    $('cwStop').addEventListener('click', () => cwSender.stop());
+    // Enter sends; Shift+Enter is a new line
+    editor.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); cwStart(); } });
+    // timers are throttled in a hidden window, which would garble the keying
+    document.addEventListener('visibilitychange', () => { if (document.hidden && cwSender.active) { cwSender.stop(); toast('ウインドウが隠れたので CW 送信を止めました'); } });
+    const sp = $('cwSpeed');
+    sp.value = S.cwWpm;
+    $('cwWpm').textContent = S.cwWpm;
+    sp.addEventListener('input', () => { S.cwWpm = +sp.value; $('cwWpm').textContent = sp.value; });
+    sp.addEventListener('change', save);
     S.cwMem.forEach((_, i) => {
       const b = document.createElement('button');
       b.textContent = `M${i + 1}`;
-      const upd = () => { b.classList.toggle('has', !!S.cwMem[i]); b.title = (S.cwMem[i] || '(空)') + '（Shift+クリックで登録）'; };
+      const upd = () => { b.classList.toggle('has', !!S.cwMem[i]); b.title = `${S.cwMem[i] || '(空)'}\nクリックで送信 / Shift+クリックで入力欄の文を登録`; };
       upd();
       b.addEventListener('click', (e) => {
         if (e.shiftKey) {
-          S.cwMem[i] = $('cwTxText').value.toUpperCase();
+          S.cwMem[i] = editor.value.toUpperCase();
           save();
           upd();
           toast(`M${i + 1} に登録しました`, 'info');
-        } else if (S.cwMem[i]) cwSend(S.cwMem[i]);
+        } else if (S.cwMem[i]) {
+          // queued after what is already waiting in the editor
+          editor.value = editor.value && !/\s$/.test(editor.value) ? `${editor.value} ${S.cwMem[i]}` : editor.value + S.cwMem[i];
+          cwStart();
+        }
       });
       $('cwMem').appendChild(b);
     });
@@ -5965,13 +6573,15 @@ const PlutoDecoders = (function () {
       const d = S.decoder;
       if (isFt(d)) $('ft8Bar').style.width = `${(ft8Dec.secInSlot * 1000 / ft8Dec.slot) * 100}%`;
       const warn = state !== 'live' ? '受信停止中' : isFt(d) && S.mode !== 'USB' ? 'USB で受信してください' : '';
-      const key = [d, warn, ft.last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
+      const key = [d, warn, ft.last, cwDec.active, cwDec.gate, d === 'CW' && cwKeyProblem()].join();
       if (key === last) return;
       last = key;
-      $('cwMode').textContent = cwDec.jp ? 'JP' : 'US';
-      $('cwTone').textContent = cwDec.toneAuto || !cwDec.toneHz ? 'AUTO' : `${cwDec.toneHz}Hz`;
-      $('cwInfo').textContent = warn || (cwDec.active ? `${cwDec.wpm || '--'} WPM · ${cwDec.toneHz || '---'} Hz` : '--');
+      $('cwInfo').textContent = warn;
       $('cwLed').classList.toggle('on', cwDec.active && cwDec.gate);
+      // shown only when CW cannot be sent (hover for the reason)
+      const why = d === 'CW' ? cwKeyProblem() : '';
+      $('cwHow').hidden = !why;
+      $('cwHow').title = why;
       $('ft8Info').textContent = warn || ft.last;
     }, 100);
 
@@ -6036,7 +6646,7 @@ const PlutoDecoders = (function () {
   }
 
   // Read-only hook for tools/browser-check.mjs.
-  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; } };
+  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; }, get audio() { return audio; }, get tx() { return tx; } };
 
   // ---------------- init ----------------
   buildFreq();

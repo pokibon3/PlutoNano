@@ -60,26 +60,40 @@
   function genIQ(samples) {
     const fs = +attrs['voltage0/sampling_frequency'];
     const lo = +attrs['altvoltage0/frequency'];
-    const out = new Int16Array(samples * 2);
-    for (let i = 0; i < samples; i++) {
-      let re = (Math.random() - 0.5) * 0.004, im = (Math.random() - 0.5) * 0.004;
-      for (let s = 0; s < stations.length; s++) {
-        const st = stations[s], off = st.f - lo;
-        if (Math.abs(off) > fs / 2) continue;
-        if (st.kind === 'morse' && !keyed(st.key, t / fs)) continue;
-        let dphi = 2 * Math.PI * off / fs;
-        if (st.kind === 'fm') dphi += 2 * Math.PI * 50e3 * Math.sin(2 * Math.PI * st.tone * t / fs) / fs;
-        phases[s] += dphi;
-        re += st.amp * Math.cos(phases[s]);
-        im += st.amp * Math.sin(phases[s]);
+    const re = new Float32Array(samples), im = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) { re[i] = (Math.random() - 0.5) * 0.004; im[i] = (Math.random() - 0.5) * 0.004; }
+    // One station at a time; carriers as a rotating phasor (cos / sin per sample cannot keep real time).
+    for (let s = 0; s < stations.length; s++) {
+      const st = stations[s], off = st.f - lo;
+      if (Math.abs(off) > fs / 2) continue;
+      const w = 2 * Math.PI * off / fs, a = st.amp;
+      let ph = phases[s];
+      if (st.kind === 'fm') {
+        for (let i = 0; i < samples; i++) {
+          ph += w + 2 * Math.PI * 50e3 * Math.sin(2 * Math.PI * st.tone * (t + i) / fs) / fs;
+          re[i] += a * Math.cos(ph); im[i] += a * Math.sin(ph);
+        }
+      } else {
+        const cr = Math.cos(w), ci = Math.sin(w);
+        let pr = Math.cos(ph), pi = Math.sin(ph), on = st.kind !== 'morse' || !!st.on;
+        for (let i = 0; i < samples; i++) {
+          // Morse: the key state every 256 samples
+          if (st.kind === 'morse' && !((t + i) & 255)) on = keyed(st.key, (t + i) / fs);
+          if (on) { re[i] += a * pr; im[i] += a * pi; }
+          const x = pr * cr - pi * ci; pi = pr * ci + pi * cr; pr = x;
+        }
+        st.on = on;
+        ph += w * samples;
       }
-      out[2 * i] = re * 2047;
-      out[2 * i + 1] = im * 2047;
-      t++;
+      phases[s] = ph % (2 * Math.PI);
     }
-    for (let s = 0; s < phases.length; s++) phases[s] %= 2 * Math.PI;
+    t += samples;
+    window.__mockIq = t; // samples generated, for checks
+    const out = new Int16Array(samples * 2);
+    for (let i = 0; i < samples; i++) { out[2 * i] = re[i] * 2047; out[2 * i + 1] = im[i] * 2047; }
     return new Uint8Array(out.buffer);
   }
+
 
   class Pipe {
     constructor() { this.q = []; this.waiters = []; this.pendingWrite = null; }
@@ -135,8 +149,11 @@
         const bytes = +parts[2];
         const fs = +attrs['voltage0/sampling_frequency'];
         const samples = bytes / 4;
-        const delay = Math.min(200, samples / fs * 1000);
-        setTimeout(() => { p.push(bytes + '\n'); p.push('00000003\n'); p.push(genIQ(samples)); }, delay);
+        // Paced by its own clock, as the device's buffers: a block is ready one block time after the previous
+        // one, however late it is asked for (short gaps are caught up), so the stream keeps real time.
+        const now = performance.now();
+        p.rxAt = (p.rxAt && now - p.rxAt < 300 ? p.rxAt : now) + samples / fs * 1000;
+        setTimeout(() => { p.push(bytes + '\n'); p.push('00000003\n'); p.push(genIQ(samples)); }, Math.max(0, Math.min(200, p.rxAt - now)));
         break;
       }
       default: p.push('0\n');

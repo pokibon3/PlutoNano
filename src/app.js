@@ -49,7 +49,7 @@
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
-    audioOut: '', audioIn: '', decoder: '', decFrac: 0.4, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
+    audioOut: '', audioIn: '', decoder: '', decFrac: 0.46, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
     ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
 
@@ -1251,7 +1251,7 @@
   // and the transmitter drops out CW_HANG ms after the last key-up.
   function txKey(down, force) {
     // The key during a CW text or an FT8 / FT4 transmission stops it; so does anything forcing TX off.
-    if ((down || force) && (cw.sending || ft.cur)) { digiStop(); if (down) return; }
+    if ((down || force) && (cwSender.active || ft.cur)) { digiStop(); if (down) return; }
     if (down) {
       const why = txBlocked();
       if (why) { toast(why); return; }
@@ -1259,12 +1259,7 @@
     if (tx.keyDown === down && !force) return;
     tx.keyDown = down;
     if (S.mode === 'CW' && !force) {
-      clearTimeout(tx.hang);
-      if (down && !tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
-      txWorker.postMessage({ type: 'key', down, t: performance.now() });
-      sidetone(down);
-      if (down) { tx.want = true; txKick(); }
-      else tx.hang = setTimeout(() => { if (!tx.keyDown) { tx.want = false; txKick(); } }, CW_HANG);
+      cwKey(down, performance.now());
     } else {
       sidetone(false);
       clearTimeout(tx.hang);
@@ -2462,7 +2457,7 @@
     $('decPane').hidden = $('decSplitter').hidden = !want;
     $('decPane').dataset.kind = want === 'CW' ? 'cw' : 'ft8';
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.classList.toggle('active', b.dataset.dec === want));
-    if (want !== 'CW') { cwDec.stop(); if (cw.sending) cwStop(); }
+    if (want !== 'CW') { cwDec.stop(); cwSender.stop(); }
     if (!isFt(want)) { ft8Dec.stop(); ftHalt(); }
     else if (ft8Dec.mode !== want) {
       // FT8 <-> FT4: TX stops, the list starts over (slot numbers differ)
@@ -2498,89 +2493,25 @@
 
   // Stops a CW text or an FT8 / FT4 transmission (PTT key, time-out, window hidden, retune).
   function digiStop() {
-    if (cw.sending) cwStop();
+    cwSender.stop();
     ftHalt();
   }
 
   // ---- CW text ----
-  const MORSE = {
-    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..',
-    M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-',
-    Y: '-.--', Z: '--..', 0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...',
-    8: '---..', 9: '----.', '.': '.-.-.-', ',': '--..--', '?': '..--..', '/': '-..-.', '=': '-...-', '+': '.-.-.', '-': '-....-',
-    '(': '-.--.', ')': '-.--.-', "'": '.----.', '"': '.-..-.', ':': '---...', ';': '-.-.-.', '@': '.--.-.', '!': '-.-.--',
-  };
-  const cw = { sending: false };
-  // Key-down intervals in seconds: dot = 1.2 / WPM, dash 3, gaps 1 / 3 / 7 dots. Unknown characters are skipped.
-  function morseMarks(text, wpm) {
-    const dot = 1.2 / wpm, marks = [];
-    let t = 0;
-    for (const w of text.split(' ')) {
-      let any = false;
-      for (const ch of w) {
-        const code = MORSE[ch];
-        if (!code) continue;
-        for (const el of code) { const d = el === '.' ? dot : 3 * dot; marks.push([t, t + d]); t += d + dot; }
-        t += 2 * dot;
-        any = true;
-      }
-      if (any) t += 4 * dot;
-    }
-    return { marks, end: marks.length ? marks[marks.length - 1][1] : 0 };
-  }
+  // The sender (cwsend.js, from the FTX-1 Controller) times the elements and keys the CW modulator through cwKey,
+  // the Space key's path, with each event's time.
+  let cwSender = null;
+  const cwKeyProblem = () => (S.mode !== 'CW' ? 'CW モードにしてください' : txBlocked());
 
-  async function cwSend(text) {
-    text = text.toUpperCase().replace(/\s+/g, ' ').trim();
-    if (!text) return;
-    if (S.mode !== 'CW') { toast('CW の送信は CW モードで行ってください'); return; }
-    const why = txBlocked();
-    if (why) { toast(why); return; }
-    const { marks, end } = morseMarks(text, S.cwWpm);
-    if (!marks.length) return;
-    // A text already on the air is replaced: wait until it has stopped.
-    if (cw.sending) {
-      cwStop();
-      for (let i = 0; i < 150 && (tx.on || tx.busy); i++) await new Promise((r) => setTimeout(r, 20));
-    }
-    cw.sending = true;
-    cwDraw();
+  // CW key event at t (performance.now() ms); the transmitter drops out CW_HANG ms after the last key-up.
+  function cwKey(down, t) {
     clearTimeout(tx.hang);
-    if (!tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
-    tx.want = true;
-    await txKick();
-    while (tx.busy) await new Promise((r) => setTimeout(r, 20));
-    if (!cw.sending) return;
-    if (!tx.on) { cw.sending = false; cwDraw(); return; }
-    // Key events in performance.now() ms; the TX worker keeps their spacing. The sidetone follows
-    // the same timeline (the modulator adds about 80 ms).
-    const t0 = performance.now() + 20;
-    sidetone(false);
-    const g = tx.side.gain, c0 = audio.ctx.currentTime + 0.1, lvl = 0.15 * S.volume;
-    g.cancelScheduledValues(audio.ctx.currentTime);
-    for (const [a, b] of marks) {
-      txWorker.postMessage({ type: 'key', down: true, t: t0 + a * 1000 });
-      txWorker.postMessage({ type: 'key', down: false, t: t0 + b * 1000 });
-      g.setTargetAtTime(lvl, c0 + a, 0.003);
-      g.setTargetAtTime(0, c0 + b, 0.003);
-    }
-    tx.hang = setTimeout(() => {
-      cw.sending = false;
-      cwDraw();
-      if (!tx.keyDown) { tx.want = false; txKick(); }
-    }, 100 + end * 1000 + CW_HANG);
+    if (down && !tx.on && !tx.want) txWorker.postMessage({ type: 'stop' }); // fresh key timeline
+    txWorker.postMessage({ type: 'key', down, t });
+    sidetone(down);
+    if (down) { if (!tx.want) { tx.want = true; txKick(); } }
+    else tx.hang = setTimeout(() => { if (!tx.keyDown) { tx.want = false; txKick(); } }, CW_HANG);
   }
-
-  function cwStop() {
-    clearTimeout(tx.hang);
-    cw.sending = false;
-    if (tx.side) { tx.side.gain.cancelScheduledValues(audio.ctx.currentTime); tx.side.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.003); }
-    tx.keyDown = false;
-    tx.want = false;
-    txKick();
-    cwDraw();
-  }
-
-  function cwDraw() { $('cwSend').classList.toggle('active', cw.sending); }
 
   // ---- FT8 / FT4 ----
   // Tx1-Tx6 as in WSJT-X: 1 call with grid, 2 report, 3 R+report, 4 RR73, 5 73, 6 CQ.
@@ -2778,39 +2709,58 @@
     document.querySelectorAll('#decPane [data-dec]').forEach((b) => b.addEventListener('click', () => setDecoder(b.dataset.dec)));
     $('decOff').addEventListener('click', () => setDecoder(''));
 
-    // CW receive
-    const cwText = $('cwText');
-    cwDec.addEventListener('text', () => {
-      const atBottom = cwText.scrollHeight - cwText.scrollTop - cwText.clientHeight < 30;
-      cwText.textContent = cwDec.text;
-      if (atBottom) cwText.scrollTop = cwText.scrollHeight;
-    });
-    $('cwMode').addEventListener('click', () => cwDec.toggleMode());
-    $('cwTone').addEventListener('click', () => cwDec.cycleTone());
-    $('cwClr').addEventListener('click', () => cwDec.clear());
+    // CW receive: display and controls as cw_decoder4's web page (cwview.js)
+    new PlutoCwView(cwDec, {
+      text: $('cwText'), fft: $('cwFft'), scope: $('cwScope'),
+      fftCard: $('cwFftCard'), scopeCard: $('cwScopeCard'), fftCap: $('cwFftCap'), scopeCap: $('cwScopeCap'),
+      scopeSpan: $('cwScopeSpan'), zoom: $('cwZoom'), zoomV: $('cwZoomV'), bKey: $('cwKey'), bEnv: $('cwEnv'), bRaw: $('cwRaw'),
+      mode: $('cwMode'), tone: $('cwTone'), wpm: $('cwWpmRx'), toneHz: $('cwToneHz'), peakHz: $('cwPeak'),
+      lvlBar: $('cwLvlBar'), lvlTx: $('cwLvl'), clip: $('cwClip'), inRate: $('cwRate'), copy: $('cwCopy'), clear: $('cwClr'),
+    }, () => S.decoder === 'CW');
     const cwGainLabel = () => { $('cwGainVal').textContent = `${S.cwGain > 0 ? '+' : ''}${S.cwGain} dB`; };
     $('cwGain').value = S.cwGain;
     cwGainLabel();
     cwDec.setGain(S.cwGain);
     $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
 
-    // CW transmit: SEND / STOP and memories M1-M5 (click: send, Shift+click: store the text box)
-    $('cwSend').addEventListener('click', () => cwSend($('cwTxText').value));
-    $('cwStop').addEventListener('click', () => { if (cw.sending) cwStop(); });
-    $('cwWpm').value = S.cwWpm;
-    $('cwWpm').addEventListener('change', (e) => { S.cwWpm = clamp(Math.round(+e.target.value || 20), 5, 50); e.target.value = S.cwWpm; save(); });
+    // CW transmit: the editor keeps sent text locked and coloured, the rest stays editable while sending; finished
+    // lines go to the log. SEND / Enter sends, STOP stops, M1-M5 queue a stored text (Shift+click stores the editor).
+    const editor = $('cwTxText');
+    cwSender = new PlutoCwSender({ editor, back: $('cwBack'), log: $('cwLog') }, () => (cwKeyProblem() ? null : cwKey), () => S.cwWpm);
+    cwSender.addEventListener('state', () => $('cwSend').classList.toggle('active', cwSender.active));
+    const cwStart = () => {
+      if (!editor.value.trim()) return;
+      const why = cwKeyProblem();
+      if (why) { toast('CW を送信できません: ' + why); return; }
+      cwSender.start();
+    };
+    $('cwSend').addEventListener('click', cwStart);
+    $('cwStop').addEventListener('click', () => cwSender.stop());
+    // Enter sends; Shift+Enter is a new line
+    editor.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); cwStart(); } });
+    // timers are throttled in a hidden window, which would garble the keying
+    document.addEventListener('visibilitychange', () => { if (document.hidden && cwSender.active) { cwSender.stop(); toast('ウインドウが隠れたので CW 送信を止めました'); } });
+    const sp = $('cwSpeed');
+    sp.value = S.cwWpm;
+    $('cwWpm').textContent = S.cwWpm;
+    sp.addEventListener('input', () => { S.cwWpm = +sp.value; $('cwWpm').textContent = sp.value; });
+    sp.addEventListener('change', save);
     S.cwMem.forEach((_, i) => {
       const b = document.createElement('button');
       b.textContent = `M${i + 1}`;
-      const upd = () => { b.classList.toggle('has', !!S.cwMem[i]); b.title = (S.cwMem[i] || '(空)') + '（Shift+クリックで登録）'; };
+      const upd = () => { b.classList.toggle('has', !!S.cwMem[i]); b.title = `${S.cwMem[i] || '(空)'}\nクリックで送信 / Shift+クリックで入力欄の文を登録`; };
       upd();
       b.addEventListener('click', (e) => {
         if (e.shiftKey) {
-          S.cwMem[i] = $('cwTxText').value.toUpperCase();
+          S.cwMem[i] = editor.value.toUpperCase();
           save();
           upd();
           toast(`M${i + 1} に登録しました`, 'info');
-        } else if (S.cwMem[i]) cwSend(S.cwMem[i]);
+        } else if (S.cwMem[i]) {
+          // queued after what is already waiting in the editor
+          editor.value = editor.value && !/\s$/.test(editor.value) ? `${editor.value} ${S.cwMem[i]}` : editor.value + S.cwMem[i];
+          cwStart();
+        }
       });
       $('cwMem').appendChild(b);
     });
@@ -2863,13 +2813,15 @@
       const d = S.decoder;
       if (isFt(d)) $('ft8Bar').style.width = `${(ft8Dec.secInSlot * 1000 / ft8Dec.slot) * 100}%`;
       const warn = state !== 'live' ? '受信停止中' : isFt(d) && S.mode !== 'USB' ? 'USB で受信してください' : '';
-      const key = [d, warn, ft.last, cwDec.active, cwDec.jp, cwDec.toneAuto, cwDec.toneHz, cwDec.wpm, cwDec.gate].join();
+      const key = [d, warn, ft.last, cwDec.active, cwDec.gate, d === 'CW' && cwKeyProblem()].join();
       if (key === last) return;
       last = key;
-      $('cwMode').textContent = cwDec.jp ? 'JP' : 'US';
-      $('cwTone').textContent = cwDec.toneAuto || !cwDec.toneHz ? 'AUTO' : `${cwDec.toneHz}Hz`;
-      $('cwInfo').textContent = warn || (cwDec.active ? `${cwDec.wpm || '--'} WPM · ${cwDec.toneHz || '---'} Hz` : '--');
+      $('cwInfo').textContent = warn;
       $('cwLed').classList.toggle('on', cwDec.active && cwDec.gate);
+      // shown only when CW cannot be sent (hover for the reason)
+      const why = d === 'CW' ? cwKeyProblem() : '';
+      $('cwHow').hidden = !why;
+      $('cwHow').title = why;
       $('ft8Info').textContent = warn || ft.last;
     }, 100);
 
@@ -2934,7 +2886,7 @@
   }
 
   // Read-only hook for tools/browser-check.mjs.
-  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; } };
+  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; }, get audio() { return audio; }, get tx() { return tx; } };
 
   // ---------------- init ----------------
   buildFreq();

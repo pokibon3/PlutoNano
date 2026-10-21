@@ -85,8 +85,14 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 
 サイドバーの **CW / FT8 / FT4** でモードを選ぶと、ウォーターフォールの下に送受信のパネルが開く。ウォーターフォールとの境目をドラッグして比率を変えられる（ダブルクリックで初期値）。パネルは [FTX-1 Controller](https://github.com/pokibon3/FTX1Controller) と同じ作りで、デコーダも同じもの（WebAssembly を AudioWorklet / Worker で実行）。受信は音量（AF）に関係なく、音量調整の前の音声を解読する。
 
-- CW 受信: [CW Decoder 4](https://github.com/pokibon3/cw_decoder4) の WebAssembly 版（ESP32 版と同じ DSP / デコーダ、GPL）。CW / USB / LSB で受信する（FM / AM モードで選ぶと CW に切り替える）。`US` / `JP` で欧文・和文、トーンボタンで AUTO（500〜1000 Hz 自動同調）と手動 600〜1000 Hz を切り替える。入力レベルはサイドバーの **CW input**
-- CW 送信: テキストを入れて **SEND**（**STOP** で中止）。**M1**〜**M5** はクリックで送信、Shift+クリックでテキストを登録。速度は **WPM**。CW モードで送信し、Space の電鍵と同じく送信後 0.8 秒で受信に戻る。サイドトーンが鳴る
+- CW 受信: [CW Decoder 4](https://github.com/pokibon3/cw_decoder4) の WebAssembly 版（ESP32 版と同じ DSP / デコーダ、GPL）。表示も CW Decoder 4 の Web 版と同じで、状態の行（WPM・トーン・ピーク周波数・入力レベル）、解読文（最新の文字を強調）、FFT スペクトラム、オシロスコープ（KEY / ENV / RAW、時間軸の倍率）がある。CW / USB / LSB で受信する（FM / AM モードで選ぶと CW に切り替える）
+  - `US` / `JP` で欧文・和文、トーンボタンで AUTO（500〜1000 Hz 自動同調）と手動 600〜1000 Hz を切り替える。FFT のクリックでもトーンを選べる
+  - FFT のダブルクリック、オシロスコープのクリックでそのグラフを全幅表示。**コピー** で解読文をクリップボードへ
+  - 入力レベルはサイドバーの **CW input**
+- CW 送信: 入力欄に文を入れて **SEND** か Enter（Shift+Enter は改行）。1 文字ずつ送信するので、送信中もまだ送っていない部分は編集・追記できる（送信済みは色が変わって編集不可）。送った文は時刻付きで上のログに残る。**STOP** で中止
+  - **M1**〜**M5** はクリックで入力欄の後ろに追加して送信、Shift+クリックで入力欄の文を登録。速度は **WPM** のスライダー
+  - 和文も送れる（ひらがな・カタカナ。濁音は「カ゛」のように送る）。欧文と和文の切り替わりにはホレ / ラタを自動で入れる
+  - CW モードで送信し、Space の電鍵と同じく送信が途切れて 0.8 秒で受信に戻る。サイドトーンが鳴る
 - FT8 / FT4 受信: [ft8_lib](https://github.com/kgoba/ft8_lib)（MIT）に WSJT-X 相当の精密同期・OSD 復号・3 パスの信号引き算を加えたもの。選ぶと USB・3 kHz 幅のフィルタに切り替える。FT8 は 15 秒（UTC :00 / :15 / :30 / :45）、FT4 は 7.5 秒ごとに解読し、新しい周期を上に表示する。**CQ・自局宛のみ** で絞り込み
 - FT8 / FT4 送信: WSJT-X と同じ Tx1〜Tx6（呼び出し / レポート / R+レポート / RR73 / 73 / CQ）
   1. MY CALL と GRID を入力（保存される）
@@ -133,6 +139,8 @@ src/tx-worker.js      送信ワーカー（マイク / 電鍵 → 変調 → I/Q
 src/audio-worklet.js  音声出力（リングバッファ）とマイク入力
 src/app.js            UI・フロントパネル・描画・スキャン
 src/decoders.js       CW / FT8 / FT4 デコーダと FT8 / FT4 の送信波形（FTX-1 Controller から移植）
+src/cwview.js         CW 受信の表示（状態・解読文・FFT・オシロスコープ。CW Decoder 4 の Web 版から）
+src/cwsend.js         CW のテキスト送信（1 文字ずつ、送信済みのロックとログ、和文）
 src/cwdec/            CW デコーダの AudioWorklet と WebAssembly（cw_decoder4）
 src/ft8/              FT8 / FT4 デコーダの AudioWorklet・Worker と WebAssembly（ft8_lib）
 wasm/ft8/             ft8core.wasm のソースとビルドスクリプト（sh wasm/ft8/build.sh）

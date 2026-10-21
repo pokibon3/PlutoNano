@@ -220,24 +220,50 @@
           <span class="spacer"></span>
           <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
         </div>
+        <!-- CW RX (left) / TX (right), as the FTX-1 Controller. RX shows what cw_decoder4's web page shows -->
         <div class="dec-body dec-cw">
-          <div class="dec-col">
-            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span>
-              <label class="chk">WPM <input id="cwWpm" type="number" min="5" max="50" step="1"></label></div>
-            <textarea id="cwTxText" class="dec-box" placeholder="CQ CQ DE JA1XXX K" spellcheck="false"></textarea>
-            <div class="cw-keys" id="cwMem">
-              <button id="cwSend" title="テキストを送信">SEND</button>
-              <button id="cwStop" title="送信を止める">STOP</button>
+          <div class="dec-col cw-rx">
+            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="キー判定"></span></div>
+            <div class="cwd-status">
+              <button id="cwMode" title="欧文 / 和文">US</button>
+              <button id="cwTone" title="トーン: AUTO → 600〜1000Hz 手動">AUTO</button>
+              <span class="cwd-sep"></span>
+              <span class="cwd-m"><b id="cwWpmRx">--</b> WPM</span>
+              <span class="cwd-m hz">TONE <b id="cwToneHz">---</b> Hz</span>
+              <span class="cwd-m pk">Peak <b id="cwPeak">----</b></span>
+              <span class="cwd-sep"></span>
+              <span class="cwd-lvl"><i>LVL</i><span class="cwd-bar"><b id="cwLvlBar"></b><s></s></span><span id="cwLvl">-inf dBFS</span><span class="cwd-clip" id="cwClip">CLIP</span><span class="cwd-rate" id="cwRate"></span></span>
+              <span class="spacer"></span>
+              <span id="cwInfo" class="mono"></span>
+              <button id="cwCopy">コピー</button>
+              <button id="cwClr">クリア</button>
+            </div>
+            <pre id="cwText" class="cw-rxtext"></pre>
+            <div class="cwd-panels">
+              <div class="cwd-card" id="cwFftCard">
+                <div class="cwd-cap" id="cwFftCap" title="グラフのクリックでトーン選択・ダブルクリックで全幅 / ここをクリックで全幅"><span>FFT スペクトラム</span></div>
+                <canvas id="cwFft"></canvas>
+              </div>
+              <div class="cwd-card" id="cwScopeCard">
+                <div class="cwd-cap" id="cwScopeCap" title="クリックで全幅表示 / もう一度で元に戻す"><span>オシロスコープ</span><span class="grow" id="cwScopeSpan"></span>
+                  <label title="時間軸の倍率">x<input type="range" id="cwZoom" min="1" max="3" step="0.5" value="2"><span id="cwZoomV">2.0</span></label>
+                  <button class="trace on" id="cwKey">KEY</button><button class="trace on" id="cwEnv">ENV</button><button class="trace on" id="cwRaw">RAW</button></div>
+                <canvas id="cwScope" title="クリックで全幅表示 / もう一度で元に戻す"></canvas>
+              </div>
             </div>
           </div>
-          <div class="dec-col">
-            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="信号を検出中"></span><span class="spacer"></span>
-              <span id="cwInfo" class="mono">--</span></div>
-            <div id="cwText" class="dec-box dec-text"></div>
-            <div class="cw-keys">
-              <button id="cwMode" title="欧文 / 和文">US</button>
-              <button id="cwTone" title="トーン: AUTO（500〜1000 Hz 自動同調）/ 手動 600〜1000 Hz">AUTO</button>
-              <button id="cwClr">CLR</button>
+          <div class="dec-col cw-tx">
+            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span><span class="dtag err" id="cwHow" hidden>送信不可</span></div>
+            <div class="cw-keys" id="cwMem">
+              <button id="cwSend" title="入力欄の文を送信（Enter でも可）。送信済みは色が変わって編集不可、その先は送信中も編集・追記できます">SEND</button>
+              <button id="cwStop">STOP</button>
+            </div>
+            <div class="cw-speed"><span class="cwd-m"><b id="cwWpm">20</b> WPM</span><input type="range" id="cwSpeed" min="4" max="60" step="1" value="20" title="送信速度"></div>
+            <div class="cw-log" id="cwLog" title="送信ログ（送信済みの文字は明るく、送信待ちの文字は暗く表示）"></div>
+            <!-- the editor's text is drawn by the backdrop (sent / on air / editable colours); the textarea on top is transparent -->
+            <div class="cw-edit-wrap">
+              <div class="cw-back" id="cwBack" aria-hidden="true"></div>
+              <textarea class="cw-box" id="cwTxText" placeholder="CQ CQ DE JA1XXX K" spellcheck="false" title="送信する文（Enter で送信、Shift+Enter で改行）。送信済み（色付き）は編集できず、その先は送信中も編集できます"></textarea>
             </div>
           </div>
         </div>
@@ -311,6 +337,8 @@
 <script type="text/plain" id="ft8core-wasm">/*INLINE_B64:ft8/ft8core.wasm*/</script>
 <script>/*INLINE:pluto.js*/</script>
 <script>/*INLINE:decoders.js*/</script>
+<script>/*INLINE:cwview.js*/</script>
+<script>/*INLINE:cwsend.js*/</script>
 <script>/*INLINE:app.js*/</script>
 </body>
 </html>
