@@ -30,7 +30,9 @@ const PlutoDecoders = (function () {
   }
 
   // ---------------- CW ----------------
-  // Signal chain as in cw_decoder4/web: input BPF (Q=3, tracks the tone) -> worklet (8 kHz, wasm core).
+  // Signal chain: demodulated audio -> worklet (8 kHz, wasm core). cw_decoder4/web puts a band-pass (Q 3, following
+  // the tone) in front, standing in for the firmware's analog one; here the receiver's own CW / SSB filter does that,
+  // and the extra band-pass made filtered noise look like a tone (garbage between overs, little left at low level).
   // The decoder keeps what the core's frames carry: text, spectrum, scope columns, input level (drawn by cwview.js
   // as cw_decoder4's web page does).
 
@@ -43,7 +45,6 @@ const PlutoDecoders = (function () {
   };
   const SPEC_BINS = 65;   // bin 0..64, 31.25 Hz each (8 kHz / 256)
   const SR = 8192;        // scope column ring (as cw_decoder4 web/app.js)
-  const BPF_Q = 3;
 
   // JIS X 0201 kana -> full-width katakana (same table as cw_decoder4 display.cpp)
   const KANA_CP = [
@@ -80,7 +81,6 @@ const PlutoDecoders = (function () {
       super();
       this.ctx = null;
       this.node = null;
-      this.bpf = null;
       this.status = null;
       this.chars = [];
       this.gain = 1;
@@ -125,13 +125,8 @@ const PlutoDecoders = (function () {
       const sink = ctx.createGain();
       sink.gain.value = 0;
       node.connect(sink).connect(ctx.destination);
-      // input BPF: the decoder's relative squelch was tuned behind the firmware's analog BPF
-      const bpf = ctx.createBiquadFilter();
-      bpf.type = 'bandpass';
-      bpf.Q.value = BPF_Q;
-      src.connect(bpf).connect(node);
-      this.ctx = ctx; this.src = src; this.node = node; this.sink = sink; this.bpf = bpf;
-      bpf.frequency.value = this._bpfCenter();
+      src.connect(node);
+      this.ctx = ctx; this.src = src; this.node = node; this.sink = sink;
       await ready;
       node.port.postMessage({ type: 'reset' });
       // the core restarts its column count and input counter
@@ -143,9 +138,9 @@ const PlutoDecoders = (function () {
       if (!this.node) return;
       // flush the character still pending, then detach
       this.node.port.postMessage({ type: 'drain' });
-      for (const n of [this.bpf, this.node, this.sink]) { try { n.disconnect(); } catch (e) { /* ignore */ } }
-      try { this.src.disconnect(this.bpf); } catch (e) { /* ignore */ }
-      this.bpf = this.node = this.ctx = this.src = null;
+      for (const n of [this.node, this.sink]) { try { n.disconnect(); } catch (e) { /* ignore */ } }
+      try { this.src.disconnect(this.node); } catch (e) { /* ignore */ }
+      this.node = this.ctx = this.src = null;
       this.dispatchEvent(new Event('state'));
     }
 
@@ -153,11 +148,6 @@ const PlutoDecoders = (function () {
     cycleTone() { this.node?.port.postMessage({ type: 'cycleTone' }); }
     setGain(db) { this.gain = Math.pow(10, db / 20); this.node?.port.postMessage({ type: 'gain', value: this.gain }); }
     clear() { this.chars = []; this.ticker = []; this.dispatchEvent(new Event('text')); }
-
-    _bpfCenter() {
-      const hz = this.toneHz;
-      return hz >= 400 && hz <= 1200 ? hz : 700;
-    }
 
     _onFrame(m) {
       this.status = m.status;
@@ -189,10 +179,6 @@ const PlutoDecoders = (function () {
       this.lastPushed = m.pushed; this.lastT = m.t;
       const clip = m.status[ST.clip];
       if (clip !== this.lastClip) { this.lastClip = clip; this.clipMs = performance.now(); }
-      if (this.bpf && this.ctx) {
-        const f = this._bpfCenter();
-        if (Math.abs(this.bpf.frequency.value - f) >= 1) this.bpf.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.05);
-      }
     }
 
     _putChar(byte) {

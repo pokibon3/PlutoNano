@@ -2900,7 +2900,7 @@
   }
 
   // Read-only hook for tools/browser-check.mjs.
-  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; }, get audio() { return audio; }, get tx() { return tx; } };
+  window.__plutoNano = { S, get sweep() { return sweep; }, wfRows, get state() { return state; }, get audio() { return audio; }, get tx() { return tx; }, cwDec };
 
   // ---------------- init ----------------
   buildFreq();
