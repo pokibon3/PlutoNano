@@ -85,7 +85,8 @@ details[open] > summary::before { content: "▾ "; }
 .mono { font-family: ui-monospace, Menlo, monospace; }
 .hint { color: var(--muted); font-size: 12px; }
 
-#view { grid-area: view; display: flex; min-width: 0; min-height: 0; }
+#view { grid-area: view; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#viewTop { flex: 1; display: flex; min-width: 0; min-height: 120px; }
 #plots { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #spec { width: 100%; height: 32%; display: block; flex: none; cursor: crosshair; }
 #splitter {
@@ -317,8 +318,13 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 /* CW RX (cw_decoder4's web page: status row, text, FFT / oscilloscope, its colours) and CW TX (log over the editor) */
 :root { --cw-font: 18px/1.45 "Hiragino Sans", "Noto Sans JP", "Yu Gothic", monospace; }
 .dtag.err { background: var(--danger); color: #fff; cursor: help; }
-.cw-rx { flex: 3; }
-.cw-tx { flex: 2; min-width: 260px; }
+/* RX / TX columns share four rows: title, controls, text (decoded text = sent log), bottom (FFT / scope = editor) */
+.dec-body.dec-cw {
+  display: grid; grid-template-columns: minmax(0, 3fr) minmax(260px, 2fr); grid-template-rows: auto auto minmax(30px, 1fr) auto;
+  column-gap: 10px;
+}
+.dec-cw > .dec-col { display: grid; grid-row: span 4; grid-template-rows: subgrid; row-gap: 6px; }
+.cw-ctl { display: flex; flex-direction: column; gap: 6px; }
 .cwd-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
 .cwd-status button { height: 24px; }
 #cwMode, #cwTone { min-width: 64px; }
@@ -339,7 +345,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .cwd-bar s { position: absolute; top: 0; bottom: 0; left: 90%; width: 1px; background: #e6b43c; }
 .cwd-clip { color: #fff; background: #eb4638; border-radius: 3px; padding: 1px 5px; visibility: hidden; }
 .cw-rxtext {
-  flex: 1; min-height: 30px; margin: 0; overflow-y: auto; padding: 4px 10px; border-radius: 4px;
+  min-height: 0; margin: 0; overflow-y: auto; padding: 4px 10px; border-radius: 4px;
   background: #0a1018; border: 1px solid #28374b; color: #e1e6dc; font: var(--cw-font); letter-spacing: .06em;
   white-space: pre-wrap; word-break: break-all;
 }
@@ -359,7 +365,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .cw-speed .cwd-m { min-width: 70px; }
 .cw-speed input[type=range] { flex: 1; }
 .cw-log {
-  flex: 1; min-height: 30px; overflow-y: auto; padding: 4px 10px; border-radius: 4px;
+  min-height: 0; overflow-y: auto; padding: 4px 10px; border-radius: 4px;
   background: #0a1018; border: 1px solid #28374b; font: var(--cw-font); letter-spacing: .06em;
   white-space: pre-wrap; word-break: break-all; user-select: text;
 }
@@ -370,7 +376,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .cw-abort { color: #6a4040; text-decoration: line-through; }
 .cw-pro { color: #5a96d2; } /* ホレ / ラタ inserted on switching Latin <-> Wabun */
 /* editor: transparent textarea over a backdrop that draws the same text in colours (same box metrics) */
-.cw-edit-wrap { position: relative; flex: 1; min-height: 56px; }
+.cw-edit-wrap { position: relative; min-height: 56px; }
 .cw-edit-wrap .cw-box, .cw-back {
   position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px;
   font: var(--cw-font); letter-spacing: .06em;
@@ -382,7 +388,10 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .cw-edit-wrap .cw-box::placeholder { color: #5a6068; }
 .cw-back .cw-sent { color: #5adc78; }
 .cw-back .cw-pend { color: #c8952e; }
-@media (max-width: 1000px) { .dec-body.dec-cw { flex-direction: column; overflow-y: auto; } .cw-tx { min-width: 0; min-height: 200px; } .cw-rx { min-height: 260px; } }
+/* narrow: RX above TX, the two text rows the same fixed height */
+@media (max-width: 1000px) {
+  .dec-body.dec-cw { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 90px auto auto auto 90px auto; overflow-y: auto; }
+}
 </style>
 </head>
 <body>
@@ -391,8 +400,9 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
     <div class="tb-left">
       <button id="btnMenu" class="icon" title="Menu">&#9776;</button>
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
+      <button id="btnUpdate" class="tb-btn primary" title="新しいバージョンに更新（受信を止めて再読み込み）" hidden>Update</button>
     </div>
-    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.0</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.1</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -579,112 +589,119 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
   </aside>
 
   <main id="view">
-    <div id="plots">
-      <canvas id="spec"></canvas>
-      <div id="splitter" title="Drag to resize"></div>
-      <div id="wfWrap">
-        <canvas id="wf"></canvas>
-        <canvas id="wfOverlay"></canvas>
-      </div>
-      <div id="decSplitter" class="splitter" title="ドラッグで比率を変更（ダブルクリックで初期値）" hidden></div>
-      <section id="decPane" hidden>
-        <div class="dec-bar">
-          <span class="dec-modes"><button data-dec="CW">CW</button><button data-dec="FT8">FT8</button><button data-dec="FT4">FT4</button></span>
-          <span class="dec-ft8">
-            <span class="ft8-slot" title="周期の経過"><i id="ft8Bar"></i></span>
-            <span id="ft8TxTag" class="dtag tx" hidden>TX</span>
-            <span id="ft8Info" class="mono">--</span>
-          </span>
-          <span class="spacer"></span>
-          <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
+    <!-- spectrum / waterfall with the zoom bar; the CW / FT8 / FT4 panel below, apart from them -->
+    <div id="viewTop">
+      <div id="plots">
+        <canvas id="spec"></canvas>
+        <div id="splitter" title="Drag to resize"></div>
+        <div id="wfWrap">
+          <canvas id="wf"></canvas>
+          <canvas id="wfOverlay"></canvas>
         </div>
-        <!-- CW RX (left) / TX (right), as the FTX-1 Controller. RX shows what cw_decoder4's web page shows -->
-        <div class="dec-body dec-cw">
-          <div class="dec-col cw-rx">
-            <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="キー判定"></span></div>
-            <div class="cwd-status">
-              <button id="cwMode" title="欧文 / 和文">US</button>
-              <button id="cwTone" title="トーン: AUTO → 600〜1000Hz 手動">AUTO</button>
-              <span class="cwd-sep"></span>
-              <span class="cwd-m"><b id="cwWpmRx">--</b> WPM</span>
-              <span class="cwd-m hz">TONE <b id="cwToneHz">---</b> Hz</span>
-              <span class="cwd-m pk">Peak <b id="cwPeak">----</b></span>
-              <span class="cwd-sep"></span>
-              <span class="cwd-lvl"><i>LVL</i><span class="cwd-bar"><b id="cwLvlBar"></b><s></s></span><span id="cwLvl">-inf dBFS</span><span class="cwd-clip" id="cwClip">CLIP</span><span class="cwd-rate" id="cwRate"></span></span>
-              <span class="spacer"></span>
-              <span id="cwInfo" class="mono"></span>
-              <button id="cwCopy">コピー</button>
-              <button id="cwClr">クリア</button>
+      </div>
+      <div id="rightbar">
+        <span class="rb-lbl">Zoom</span>
+        <input id="zoom" type="range" min="0" max="1" step="0.001" class="vslider" title="Zoom">
+      </div>
+    </div>
+    <div id="decSplitter" class="splitter" title="ドラッグで比率を変更（ダブルクリックで初期値）" hidden></div>
+    <section id="decPane" hidden>
+      <div class="dec-bar">
+        <span class="dec-modes"><button data-dec="CW">CW</button><button data-dec="FT8">FT8</button><button data-dec="FT4">FT4</button></span>
+        <span class="dec-ft8">
+          <span class="ft8-slot" title="周期の経過"><i id="ft8Bar"></i></span>
+          <span id="ft8TxTag" class="dtag tx" hidden>TX</span>
+          <span id="ft8Info" class="mono">--</span>
+        </span>
+        <span class="spacer"></span>
+        <button id="decOff" class="icon" title="デコーダを止める">&times;</button>
+      </div>
+      <!-- CW RX (left) / TX (right), as the FTX-1 Controller. RX shows what cw_decoder4's web page shows.
+           Both columns share the rows (title / controls / text / bottom), so the decoded text and the sent log
+           are always the same height -->
+      <div class="dec-body dec-cw">
+        <div class="dec-col cw-rx">
+          <div class="dec-sub">CW <span class="dtag">RX</span><span id="cwLed" class="led" title="キー判定"></span></div>
+          <div class="cwd-status">
+            <button id="cwMode" title="欧文 / 和文">US</button>
+            <button id="cwTone" title="トーン: AUTO → 600〜1000Hz 手動">AUTO</button>
+            <span class="cwd-sep"></span>
+            <span class="cwd-m"><b id="cwWpmRx">--</b> WPM</span>
+            <span class="cwd-m hz">TONE <b id="cwToneHz">---</b> Hz</span>
+            <span class="cwd-m pk">Peak <b id="cwPeak">----</b></span>
+            <span class="cwd-sep"></span>
+            <span class="cwd-lvl"><i>LVL</i><span class="cwd-bar"><b id="cwLvlBar"></b><s></s></span><span id="cwLvl">-inf dBFS</span><span class="cwd-clip" id="cwClip">CLIP</span><span class="cwd-rate" id="cwRate"></span></span>
+            <span class="spacer"></span>
+            <span id="cwInfo" class="mono"></span>
+            <button id="cwCopy">コピー</button>
+            <button id="cwClr">クリア</button>
+          </div>
+          <pre id="cwText" class="cw-rxtext"></pre>
+          <div class="cwd-panels">
+            <div class="cwd-card" id="cwFftCard">
+              <div class="cwd-cap" id="cwFftCap" title="グラフのクリックでトーン選択・ダブルクリックで全幅 / ここをクリックで全幅"><span>FFT スペクトラム</span></div>
+              <canvas id="cwFft"></canvas>
             </div>
-            <pre id="cwText" class="cw-rxtext"></pre>
-            <div class="cwd-panels">
-              <div class="cwd-card" id="cwFftCard">
-                <div class="cwd-cap" id="cwFftCap" title="グラフのクリックでトーン選択・ダブルクリックで全幅 / ここをクリックで全幅"><span>FFT スペクトラム</span></div>
-                <canvas id="cwFft"></canvas>
-              </div>
-              <div class="cwd-card" id="cwScopeCard">
-                <div class="cwd-cap" id="cwScopeCap" title="クリックで全幅表示 / もう一度で元に戻す"><span>オシロスコープ</span><span class="grow" id="cwScopeSpan"></span>
-                  <label title="時間軸の倍率">x<input type="range" id="cwZoom" min="1" max="3" step="0.5" value="2"><span id="cwZoomV">2.0</span></label>
-                  <button class="trace on" id="cwKey">KEY</button><button class="trace on" id="cwEnv">ENV</button><button class="trace on" id="cwRaw">RAW</button></div>
-                <canvas id="cwScope" title="クリックで全幅表示 / もう一度で元に戻す"></canvas>
-              </div>
+            <div class="cwd-card" id="cwScopeCard">
+              <div class="cwd-cap" id="cwScopeCap" title="クリックで全幅表示 / もう一度で元に戻す"><span>オシロスコープ</span><span class="grow" id="cwScopeSpan"></span>
+                <label title="時間軸の倍率">x<input type="range" id="cwZoom" min="1" max="3" step="0.5" value="2"><span id="cwZoomV">2.0</span></label>
+                <button class="trace on" id="cwKey">KEY</button><button class="trace on" id="cwEnv">ENV</button><button class="trace on" id="cwRaw">RAW</button></div>
+              <canvas id="cwScope" title="クリックで全幅表示 / もう一度で元に戻す"></canvas>
             </div>
           </div>
-          <div class="dec-col cw-tx">
-            <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span><span class="dtag err" id="cwHow" hidden>送信不可</span></div>
+        </div>
+        <div class="dec-col cw-tx">
+          <div class="dec-sub">CW <span class="dtag tx">TX</span><span class="spacer"></span><span class="dtag err" id="cwHow" hidden>送信不可</span></div>
+          <div class="cw-ctl">
             <div class="cw-keys" id="cwMem">
               <button id="cwSend" title="入力欄の文を送信（Enter でも可）。送信済みは色が変わって編集不可、その先は送信中も編集・追記できます">SEND</button>
               <button id="cwStop">STOP</button>
             </div>
             <div class="cw-speed"><span class="cwd-m"><b id="cwWpm">20</b> WPM</span><input type="range" id="cwSpeed" min="4" max="60" step="1" value="20" title="送信速度"></div>
-            <div class="cw-log" id="cwLog" title="送信ログ（送信済みの文字は明るく、送信待ちの文字は暗く表示）"></div>
-            <!-- the editor's text is drawn by the backdrop (sent / on air / editable colours); the textarea on top is transparent -->
-            <div class="cw-edit-wrap">
-              <div class="cw-back" id="cwBack" aria-hidden="true"></div>
-              <textarea class="cw-box" id="cwTxText" placeholder="CQ CQ DE JA1XXX K" spellcheck="false" title="送信する文（Enter で送信、Shift+Enter で改行）。送信済み（色付き）は編集できず、その先は送信中も編集できます"></textarea>
-            </div>
+          </div>
+          <div class="cw-log" id="cwLog" title="送信ログ（送信済みの文字は明るく、送信待ちの文字は暗く表示）"></div>
+          <!-- the editor's text is drawn by the backdrop (sent / on air / editable colours); the textarea on top is transparent -->
+          <div class="cw-edit-wrap">
+            <div class="cw-back" id="cwBack" aria-hidden="true"></div>
+            <textarea class="cw-box" id="cwTxText" placeholder="CQ CQ DE JA1XXX K" spellcheck="false" title="送信する文（Enter で送信、Shift+Enter で改行）。送信済み（色付き）は編集できず、その先は送信中も編集できます"></textarea>
           </div>
         </div>
-        <div class="dec-body dec-ft8">
-          <div class="dec-col ft8-rx">
-            <div class="ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
-            <div id="ft8List" class="dec-box ft8-list" title="クリックでその局を DX CALL に設定、ダブルクリックで TX ON"></div>
-            <div class="cw-keys ft8-keys">
-              <button id="ft8Clr">CLR</button>
-              <label class="chk"><input id="ft8Cq" type="checkbox"> CQ・自局宛のみ</label>
-            </div>
-          </div>
-          <div class="dec-col ft8-tx">
-            <div class="ft8-txcfg">
-              <label>MY CALL<input type="text" id="ft8My" maxlength="11" spellcheck="false" placeholder="JA1XXX"></label>
-              <label>GRID<input type="text" id="ft8Grid" maxlength="6" spellcheck="false" placeholder="PM95"></label>
-              <label>DX CALL<input type="text" id="ft8Dx" maxlength="11" spellcheck="false"></label>
-              <label>RPT<input type="text" id="ft8Rpt" maxlength="3" spellcheck="false"></label>
-              <label>TX Hz<input type="number" id="ft8TxHz" min="200" max="3000" step="10"></label>
-              <label>LEVEL<input type="range" id="ft8Lvl" min="0.02" max="1" step="0.01"></label>
-            </div>
-            <div class="ft8-msgs" id="ft8Msgs">
-              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx1</b><input type="text" spellcheck="false" maxlength="37"></label>
-              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx2</b><input type="text" spellcheck="false" maxlength="37"></label>
-              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx3</b><input type="text" spellcheck="false" maxlength="37"></label>
-              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx4</b><input type="text" spellcheck="false" maxlength="37"></label>
-              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx5</b><input type="text" spellcheck="false" maxlength="37"></label>
-              <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx6</b><input type="text" spellcheck="false" maxlength="37"></label>
-            </div>
-            <div class="cw-keys ft8-txkeys">
-              <button id="ft8Tx" title="選択中の Tx メッセージを、選んだ周期で送信します">TX ON</button>
-              <button id="ft8Halt" title="送信をすぐ止め、TX を OFF にします">HALT</button>
-              <button id="ft8Per" title="送信する周期（UTC 秒）">00/30</button>
-              <label class="chk"><input type="checkbox" id="ft8Auto"> AUTO SEQ</label>
-            </div>
+      </div>
+      <div class="dec-body dec-ft8">
+        <div class="dec-col ft8-rx">
+          <div class="ft8-head"><span>UTC</span><span>dB</span><span>DT</span><span>Freq</span><span>Message</span></div>
+          <div id="ft8List" class="dec-box ft8-list" title="クリックでその局を DX CALL に設定、ダブルクリックで TX ON"></div>
+          <div class="cw-keys ft8-keys">
+            <button id="ft8Clr">CLR</button>
+            <label class="chk"><input id="ft8Cq" type="checkbox"> CQ・自局宛のみ</label>
           </div>
         </div>
-      </section>
-    </div>
-    <div id="rightbar">
-      <span class="rb-lbl">Zoom</span>
-      <input id="zoom" type="range" min="0" max="1" step="0.001" class="vslider" title="Zoom">
-    </div>
+        <div class="dec-col ft8-tx">
+          <div class="ft8-txcfg">
+            <label>MY CALL<input type="text" id="ft8My" maxlength="11" spellcheck="false" placeholder="JA1XXX"></label>
+            <label>GRID<input type="text" id="ft8Grid" maxlength="6" spellcheck="false" placeholder="PM95"></label>
+            <label>DX CALL<input type="text" id="ft8Dx" maxlength="11" spellcheck="false"></label>
+            <label>RPT<input type="text" id="ft8Rpt" maxlength="3" spellcheck="false"></label>
+            <label>TX Hz<input type="number" id="ft8TxHz" min="200" max="3000" step="10"></label>
+            <label>LEVEL<input type="range" id="ft8Lvl" min="0.02" max="1" step="0.01"></label>
+          </div>
+          <div class="ft8-msgs" id="ft8Msgs">
+            <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx1</b><input type="text" spellcheck="false" maxlength="37"></label>
+            <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx2</b><input type="text" spellcheck="false" maxlength="37"></label>
+            <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx3</b><input type="text" spellcheck="false" maxlength="37"></label>
+            <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx4</b><input type="text" spellcheck="false" maxlength="37"></label>
+            <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx5</b><input type="text" spellcheck="false" maxlength="37"></label>
+            <label class="ft8-msg"><input type="radio" name="ft8Sel"><b>Tx6</b><input type="text" spellcheck="false" maxlength="37"></label>
+          </div>
+          <div class="cw-keys ft8-txkeys">
+            <button id="ft8Tx" title="選択中の Tx メッセージを、選んだ周期で送信します">TX ON</button>
+            <button id="ft8Halt" title="送信をすぐ止め、TX を OFF にします">HALT</button>
+            <button id="ft8Per" title="送信する周期（UTC 秒）">00/30</button>
+            <label class="chk"><input type="checkbox" id="ft8Auto"> AUTO SEQ</label>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -6157,7 +6174,7 @@ const PlutoCwSender = (function () {
       const plots = $('plots').getBoundingClientRect();
       const grab = e.clientY - (plots.top + S.specFrac * plots.height);
       const move = (ev) => {
-        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9 - (S.decoder ? S.decFrac + 0.05 : 0));
+        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9);
         specCanvas.style.height = S.specFrac * 100 + '%';
         resize();
       };
@@ -6585,16 +6602,16 @@ const PlutoCwSender = (function () {
       $('ft8Info').textContent = warn || ft.last;
     }, 100);
 
-    // Waterfall / panel splitter: the panel's share of the plots, kept clear of the spectrum.
+    // Splitter between the spectrum / waterfall and the panel: the panel's share of the view.
     const split = $('decSplitter'), pane = $('decPane');
     const place = () => { pane.style.height = S.decFrac * 100 + '%'; };
     split.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       split.setPointerCapture(e.pointerId);
       split.classList.add('drag');
-      const plots = $('plots').getBoundingClientRect();
+      const view = $('view').getBoundingClientRect();
       const move = (ev) => {
-        S.decFrac = clamp((plots.bottom - ev.clientY) / plots.height, 0.15, 0.85 - S.specFrac);
+        S.decFrac = clamp((view.bottom - ev.clientY) / view.height, 0.15, 0.8);
         place();
       };
       const up = () => {
@@ -6609,7 +6626,7 @@ const PlutoCwSender = (function () {
       split.addEventListener('pointercancel', up);
     });
     split.addEventListener('dblclick', () => { S.decFrac = DEFAULTS.decFrac; place(); save(); });
-    S.decFrac = clamp(S.decFrac, 0.15, 0.85 - S.specFrac);
+    S.decFrac = clamp(S.decFrac, 0.15, 0.8);
     place();
     decSync();
   }
@@ -6618,16 +6635,30 @@ const PlutoCwSender = (function () {
   // Only the GitHub Pages build links a manifest; file:// pages skip this.
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
     const hadController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-    // A new build took over: reload into it right away. The device is
-    // released first so the reloaded page can reconnect to it.
+    // An open window looks for a new build every 30 minutes and when it comes back to the front
+    // (the browser itself only looks when the page is loaded).
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      setInterval(check, 30 * 60e3);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    }).catch(() => {});
+    // A new build took over. The device is released first so the reloaded page can reconnect to it.
     let reloading = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadController || reloading) return;
+    const reload = () => {
+      if (reloading) return;
       reloading = true;
       toast('新しいバージョンに更新します', 'info');
       Promise.race([disconnect().catch(() => {}), new Promise((r) => setTimeout(r, 1500))])
         .then(() => location.reload());
+    };
+    $('btnUpdate').addEventListener('click', reload);
+    const loadedAt = performance.now();
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      // Found while starting up: reload right away. Later (the app is in use): only when asked, so a
+      // reception or a transmission is not cut off.
+      if (performance.now() - loadedAt < 20e3) reload();
+      else { $('btnUpdate').hidden = false; toast('新しいバージョンがあります。Update で更新します', 'info'); }
     });
     let installEvt = null;
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -6664,7 +6695,7 @@ const PlutoCwSender = (function () {
   attachPointer(ovCanvas);
   const plotsObserver = new ResizeObserver(resize);
   plotsObserver.observe($('plots'));
-  plotsObserver.observe($('wfWrap')); // the decoder pane takes height from the waterfall
+  plotsObserver.observe($('wfWrap'));
   resize();
   workerConfig();
   requestAnimationFrame(frame);

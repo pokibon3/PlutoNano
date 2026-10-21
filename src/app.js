@@ -2397,7 +2397,7 @@
       const plots = $('plots').getBoundingClientRect();
       const grab = e.clientY - (plots.top + S.specFrac * plots.height);
       const move = (ev) => {
-        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9 - (S.decoder ? S.decFrac + 0.05 : 0));
+        S.specFrac = clamp((ev.clientY - grab - plots.top) / plots.height, 0.1, 0.9);
         specCanvas.style.height = S.specFrac * 100 + '%';
         resize();
       };
@@ -2825,16 +2825,16 @@
       $('ft8Info').textContent = warn || ft.last;
     }, 100);
 
-    // Waterfall / panel splitter: the panel's share of the plots, kept clear of the spectrum.
+    // Splitter between the spectrum / waterfall and the panel: the panel's share of the view.
     const split = $('decSplitter'), pane = $('decPane');
     const place = () => { pane.style.height = S.decFrac * 100 + '%'; };
     split.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       split.setPointerCapture(e.pointerId);
       split.classList.add('drag');
-      const plots = $('plots').getBoundingClientRect();
+      const view = $('view').getBoundingClientRect();
       const move = (ev) => {
-        S.decFrac = clamp((plots.bottom - ev.clientY) / plots.height, 0.15, 0.85 - S.specFrac);
+        S.decFrac = clamp((view.bottom - ev.clientY) / view.height, 0.15, 0.8);
         place();
       };
       const up = () => {
@@ -2849,7 +2849,7 @@
       split.addEventListener('pointercancel', up);
     });
     split.addEventListener('dblclick', () => { S.decFrac = DEFAULTS.decFrac; place(); save(); });
-    S.decFrac = clamp(S.decFrac, 0.15, 0.85 - S.specFrac);
+    S.decFrac = clamp(S.decFrac, 0.15, 0.8);
     place();
     decSync();
   }
@@ -2858,16 +2858,30 @@
   // Only the GitHub Pages build links a manifest; file:// pages skip this.
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel=manifest]')) {
     const hadController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-    // A new build took over: reload into it right away. The device is
-    // released first so the reloaded page can reconnect to it.
+    // An open window looks for a new build every 30 minutes and when it comes back to the front
+    // (the browser itself only looks when the page is loaded).
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      setInterval(check, 30 * 60e3);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    }).catch(() => {});
+    // A new build took over. The device is released first so the reloaded page can reconnect to it.
     let reloading = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadController || reloading) return;
+    const reload = () => {
+      if (reloading) return;
       reloading = true;
       toast('新しいバージョンに更新します', 'info');
       Promise.race([disconnect().catch(() => {}), new Promise((r) => setTimeout(r, 1500))])
         .then(() => location.reload());
+    };
+    $('btnUpdate').addEventListener('click', reload);
+    const loadedAt = performance.now();
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      // Found while starting up: reload right away. Later (the app is in use): only when asked, so a
+      // reception or a transmission is not cut off.
+      if (performance.now() - loadedAt < 20e3) reload();
+      else { $('btnUpdate').hidden = false; toast('新しいバージョンがあります。Update で更新します', 'info'); }
     });
     let installEvt = null;
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -2904,7 +2918,7 @@
   attachPointer(ovCanvas);
   const plotsObserver = new ResizeObserver(resize);
   plotsObserver.observe($('plots'));
-  plotsObserver.observe($('wfWrap')); // the decoder pane takes height from the waterfall
+  plotsObserver.observe($('wfWrap'));
   resize();
   workerConfig();
   requestAnimationFrame(frame);

@@ -10,9 +10,10 @@ const out = process.argv[2] || 'shot.png';
 const mock = process.argv.includes('--mock');
 const page = process.env.PAGE || 'file://' + resolve('dist/PlutoNano.html');
 const chrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const W = +(process.env.W || 1400), H = +(process.env.H || 850);
 const prof = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'cdp-'));
 const proc = spawn(chrome, ['--headless=new', '--remote-debugging-port=9333', `--user-data-dir=${prof}`,
-  '--window-size=1400,850', '--autoplay-policy=no-user-gesture-required',
+  `--window-size=${W},${H}`, '--autoplay-policy=no-user-gesture-required',
   // Fake microphone for the TX path.
   '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', 'about:blank'], { stdio: 'ignore' });
 // Never leave headless Chrome running (and playing audio) when this script fails.
@@ -39,7 +40,7 @@ ws.onmessage = (ev) => {
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 
 await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
-await send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 850, deviceScaleFactor: 1, mobile: false });
+await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
 if (mock) await send('Page.addScriptToEvaluateOnNewDocument', { source: readFileSync('tools/mock-usb.js', 'utf8') });
 await send('Page.navigate', { url: page });
 await sleep(1500);
