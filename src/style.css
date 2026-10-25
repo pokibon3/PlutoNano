@@ -320,7 +320,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .cw-ctl { display: flex; flex-direction: column; gap: 6px; }
 .cwd-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
 .cwd-status button { height: 24px; }
-#cwMode, #cwTone { min-width: 64px; }
+#cwMode, #cwTone, #cwNr { min-width: 64px; }
 #cwNr.on { color: #5adc78; }
 #cwMode.jp { background: #6e4610; border-color: #fac775; color: #ffe8be; }
 .cwd-sep { width: 1px; align-self: stretch; background: #28374b; }

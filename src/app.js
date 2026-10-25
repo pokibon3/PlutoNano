@@ -17,7 +17,7 @@
     CW: { filters: [1.2e3, 500, 250], fil: 1, snap: 100, deemph: 0 },
   };
   // Must match dsp.js: SSB passband low cut and the CW tone.
-  const SSB_LOWCUT = 100, CW_PITCH = 700;
+  const SSB_LOWCUT = 100, CW_PITCH = 600;   // as dsp.js
   const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
   // Below ~2.083 MSPS the AD9361 needs a FIR filter loaded; without one the
   // driver rejects the rate and the next rate change hangs the device.

@@ -226,8 +226,9 @@
 
   // Complete receive chain: IQ at fs -> interleaved stereo audio at audioRate.
   // mode: WFM | NFM | AM | USB | LSB | CW
-  // CW: the carrier at the VFO is heard as a CW_PITCH tone.
-  const CW_PITCH = 700;
+  // CW: the carrier at the VFO is heard as a CW_PITCH tone, the CW decoder's AUTO idle tone (cw_decoder4 dsp.cpp
+  // DSP_AUTO_IDLE_HZ), so it has nothing to pull in at the start of an over.
+  const CW_PITCH = 600;
   // SSB passband starts this far from the carrier (low cut).
   const SSB_LOWCUT = 100;
   class Receiver {
@@ -579,7 +580,7 @@
     }
   }
 
-  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
+  const api = { CW_PITCH, FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DSP = api;
 })(typeof self !== 'undefined' ? self : globalThis);

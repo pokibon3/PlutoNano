@@ -327,7 +327,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .cw-ctl { display: flex; flex-direction: column; gap: 6px; }
 .cwd-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
 .cwd-status button { height: 24px; }
-#cwMode, #cwTone { min-width: 64px; }
+#cwMode, #cwTone, #cwNr { min-width: 64px; }
 #cwNr.on { color: #5adc78; }
 #cwMode.jp { background: #6e4610; border-color: #fac775; color: #ffe8be; }
 .cwd-sep { width: 1px; align-self: stretch; background: #28374b; }
@@ -405,7 +405,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
       <button id="btnUpdate" class="tb-btn primary" title="新しいバージョンに更新（受信を止めて再読み込み）" hidden>Update</button>
     </div>
-    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.3</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.5</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -952,8 +952,9 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 
   // Complete receive chain: IQ at fs -> interleaved stereo audio at audioRate.
   // mode: WFM | NFM | AM | USB | LSB | CW
-  // CW: the carrier at the VFO is heard as a CW_PITCH tone.
-  const CW_PITCH = 700;
+  // CW: the carrier at the VFO is heard as a CW_PITCH tone, the CW decoder's AUTO idle tone (cw_decoder4 dsp.cpp
+  // DSP_AUTO_IDLE_HZ), so it has nothing to pull in at the start of an over.
+  const CW_PITCH = 600;
   // SSB passband starts this far from the carrier (low cut).
   const SSB_LOWCUT = 100;
   class Receiver {
@@ -1305,7 +1306,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
     }
   }
 
-  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
+  const api = { CW_PITCH, FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DSP = api;
 })(typeof self !== 'undefined' ? self : globalThis);
@@ -1669,8 +1670,9 @@ configure({});
 
   // Complete receive chain: IQ at fs -> interleaved stereo audio at audioRate.
   // mode: WFM | NFM | AM | USB | LSB | CW
-  // CW: the carrier at the VFO is heard as a CW_PITCH tone.
-  const CW_PITCH = 700;
+  // CW: the carrier at the VFO is heard as a CW_PITCH tone, the CW decoder's AUTO idle tone (cw_decoder4 dsp.cpp
+  // DSP_AUTO_IDLE_HZ), so it has nothing to pull in at the start of an over.
+  const CW_PITCH = 600;
   // SSB passband starts this far from the carrier (low cut).
   const SSB_LOWCUT = 100;
   class Receiver {
@@ -2022,7 +2024,7 @@ configure({});
     }
   }
 
-  const api = { FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
+  const api = { CW_PITCH, FFT, makeWindow, lowpass, CDecim, RDecim, Resampler, Mixer, AGC, Receiver, Transmitter, Spectrum };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DSP = api;
 })(typeof self !== 'undefined' ? self : globalThis);
@@ -3792,7 +3794,7 @@ const PlutoCwSender = (function () {
     CW: { filters: [1.2e3, 500, 250], fil: 1, snap: 100, deemph: 0 },
   };
   // Must match dsp.js: SSB passband low cut and the CW tone.
-  const SSB_LOWCUT = 100, CW_PITCH = 700;
+  const SSB_LOWCUT = 100, CW_PITCH = 600;   // as dsp.js
   const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
   // Below ~2.083 MSPS the AD9361 needs a FIR filter loaded; without one the
   // driver rejects the rate and the next rate change hangs the device.
