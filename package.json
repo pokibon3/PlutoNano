@@ -1,6 +1,6 @@
 {
   "name": "pluto-nano-sdr",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "private": true,
   "description": "Standalone browser SDR for Pluto SDR Nano over WebUSB",
   "scripts": {

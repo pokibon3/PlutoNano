@@ -121,7 +121,9 @@
       if (w) { sweepWaiters.delete(m.id); w(m.db); }
     }
   };
+  let onRxConfig = null;   // set by bindDecoders (the CW decoder follows the receive filter width)
   function workerConfig() {
+    onRxConfig?.();
     worker.postMessage({
       type: 'config',
       cfg: {
@@ -2721,6 +2723,9 @@
     $('cwGain').value = S.cwGain;
     cwGainLabel();
     cwDec.setGain(S.cwGain);
+    // the decoder's input BPF depends on the receive filter width
+    onRxConfig = () => cwDec.setRxBandwidth(mode().bandwidth);
+    onRxConfig();
     $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
     const cwNr = () => { cwDec.setNr(S.cwNr); $('cwNr').classList.toggle('on', S.cwNr); };
     cwNr();

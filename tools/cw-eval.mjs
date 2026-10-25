@@ -6,7 +6,7 @@
 //   pnb   pn with cw_decoder4/web's input band-pass
 //   rxb   rx with cw_decoder4/web's input band-pass (Q 3, following the tone) in front of the worklet
 // each with NR off (A, Goertzel) and on (E, ALE amplitude). The level table scales the receiver's output.
-// Usage: node tools/cw-eval.mjs [path/to/cw_decoder4/web/tools] [--paths web,rx,rxb] [--bw 500] [--keep-tone] [--show]
+// Usage: node tools/cw-eval.mjs [path/to/cw_decoder4/web/tools] [--paths web,rx,rxb] [--bw 500] [--mode CW|USB] [--gain dB] [--peak dBFS] [--no-agc] [--no-level] [--keep-tone] [--show]
 // Needs ffmpeg.
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -21,9 +21,11 @@ const opt = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] :
 const DIR = argv.find((a, i) => !a.startsWith('--') && !(i > 0 && argv[i - 1].startsWith('--'))) || '../cw_decoder4/web/tools';
 const PATHS = opt('--paths', 'web,rx,rxb').split(',');
 const BW = +opt('--bw', 500);
+const RXMODE = opt('--mode', 'CW');          // rx: CW, or USB (the tone tuned to the CW pitch as well)
 const NOAGC = argv.includes('--no-agc');     // rx: the receiver's AGC off (its output then scaled with --peak)
 const PEAK = opt('--peak', NOAGC ? '-6' : null);  // rx: scale the receiver's output to this peak (dBFS)
 if (NOAGC) DSP.AGC.prototype.process = () => {};
+const GAIN = opt('--gain', null);             // rx: the CW input gain (dB) on the receiver's output, as the app's CW input
 const KEEP = argv.includes('--keep-tone');   // rx: tune so the tone stays at its pitch (default: tuned to the CW pitch)
 const html = readFileSync('dist/PlutoNano.html', 'utf8');
 const tag = (id) => { const m = new RegExp(`<script type="text/plain" id="${id}">([\\s\\S]*?)</script>`).exec(html); if (!m) throw new Error(id); return m[1]; };
@@ -112,7 +114,7 @@ function web(x48, hz) {
 const FS = 240e3, L = 5, OFFSET = 50e3;
 function rx(x48, hz) {
   const txm = new DSP.Transmitter({ fs: FS, L, mode: 'USB', bandwidth: 3000, data: true });
-  const r = new DSP.Receiver({ fs: FS, offset: OFFSET + (KEEP ? DSP.CW_PITCH : hz), mode: 'CW', bandwidth: BW, deemph: 0, audioRate: AR });
+  const r = new DSP.Receiver({ fs: FS, offset: OFFSET + (KEEP ? DSP.CW_PITCH : hz) - (RXMODE === 'USB' ? DSP.CW_PITCH : 0), mode: RXMODE, bandwidth: BW, deemph: 0, audioRate: AR });
   // the receiver runs before the over (its AGC settled): the first 5 s once more ahead, its output dropped
   const warm = Math.min(x48.length, 5 * AR), m = 480, out = new Float32Array(x48.length + m);
   let ph = 0, k = -Math.ceil(warm / m) * m;
@@ -136,7 +138,8 @@ async function run(path, x48, hz, det, scale) {
   if (path === 'pn' || path === 'pnb') return worklet(x48, det, path === 'pnb');
   if (scale === undefined && PEAK !== null) scale = +PEAK;
   let y = (x48.rx ||= rx(x48, hz));
-  if (scale !== undefined) {
+  if (scale === undefined && GAIN !== null) { const g = Math.pow(10, GAIN / 20); y = y.map((v) => v * g); }
+  else if (scale !== undefined) {
     let pk = 0;
     for (const v of y) pk = Math.max(pk, Math.abs(v));
     const k = Math.pow(10, scale / 20) / pk;
@@ -215,7 +218,7 @@ async function row(name, x, hz, score) {
 }
 
 const TEXT = 'CQ CQ DE JA1ABC JA1ABC PSE K THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG 599 TU';
-head(`合成 20WPM 700Hz (文字正解率、2 シード平均)、rx は CW ${BW} Hz フィルタ`);
+head(`合成 20WPM 700Hz (文字正解率、2 シード平均)、rx は ${RXMODE} ${BW} Hz フィルタ`);
 for (const c of [{ snr: 10 }, { snr: 0 }, { snr: -3 }, { snr: -6 }, { snr: -8 }, { snr: -10 }, { snr: -3, wpm: 12 }, { snr: -3, wpm: 30 }, { snr: -3, wpm: 40 }]) {
   const sums = COLS.map(() => 0);
   for (const seed of [1, 2]) {
@@ -245,7 +248,7 @@ for (const f of ['FS_sample.mp3', 'qsb_sample.mp3', 'qrm_sample.mp3']) {
   await row(`${f} ${hz}Hz`, x, hz, (t) => { const w = t.split(' ').filter(Boolean); return `${pct(w.filter((v) => v.length === 1).length / Math.max(1, w.length))}/${w.join('').length}`; });
 }
 
-if (PATHS.some((p) => p.startsWith('rx'))) {
+if (PATHS.some((p) => p.startsWith('rx')) && !argv.includes('--no-level')) {
   const LV = [-5, -15, -25, -35], RX = COLS.filter(([p]) => p.startsWith('rx'));
   console.log(`\n== 入力レベル (受信出力のピーク dBFS、文字正解率)\n${''.padEnd(34)}${LV.map((l) => RX.map(([p, d]) => `${p}/${d} ${l}`.padStart(14)).join('')).join('')}`);
   const pk = [];
