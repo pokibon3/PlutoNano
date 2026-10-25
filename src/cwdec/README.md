@@ -1,7 +1,7 @@
 # CW decoder core
 
 `cw-worklet.js` and `cwcore.wasm` are copied unchanged from
-[pokibon3/cw_decoder4](https://github.com/pokibon3/cw_decoder4) `web/` (commit `958cf33`).
+[pokibon3/cw_decoder4](https://github.com/pokibon3/cw_decoder4) `web/` (commit `27b78ef`, v3.4).
 They run the same DSP / decoder as the ESP32 CW Decoder firmware.
 
 The decoder is partly based on the Arduino CW Decoder by Hjalmar Skovholm Hansen OZ1JHM

@@ -84,6 +84,9 @@ const PlutoDecoders = (function () {
       this.status = null;
       this.chars = [];
       this.gain = 1;
+      // NR (noise reduction) as the device's SETUP NR: on = tone detection E (ALE amplitude, dsp.h DSP_DET_ALE_AMP),
+      // off = the plain Goertzel A
+      this.nr = true;
       this.spec = new Uint16Array(SPEC_BINS);
       // scope columns (min / max raw, envelope, key gate), numbered from the core's running column count
       this.sMn = new Int16Array(SR); this.sMx = new Int16Array(SR);
@@ -129,6 +132,7 @@ const PlutoDecoders = (function () {
       this.ctx = ctx; this.src = src; this.node = node; this.sink = sink;
       await ready;
       node.port.postMessage({ type: 'reset' });
+      this.setNr(this.nr);
       // the core restarts its column count and input counter
       this.sTotal = 0; this.ticker = []; this.lastPushed = -1; this.inRate = 0;
       this.dispatchEvent(new Event('state'));
@@ -146,6 +150,8 @@ const PlutoDecoders = (function () {
 
     toggleMode() { this.node?.port.postMessage({ type: 'toggleMode' }); }
     cycleTone() { this.node?.port.postMessage({ type: 'cycleTone' }); }
+    setToneHz(hz) { this.node?.port.postMessage({ type: 'toneHz', hz: Math.round(hz) }); }
+    setNr(on) { this.nr = !!on; this.node?.port.postMessage({ type: 'det', mode: this.nr ? 4 : 0 }); }
     setGain(db) { this.gain = Math.pow(10, db / 20); this.node?.port.postMessage({ type: 'gain', value: this.gain }); }
     clear() { this.chars = []; this.ticker = []; this.dispatchEvent(new Event('text')); }
 

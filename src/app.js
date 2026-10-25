@@ -49,7 +49,7 @@
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
     meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
-    audioOut: '', audioIn: '', decoder: '', decFrac: 0.46, cwGain: 0, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
+    audioOut: '', audioIn: '', decoder: '', decFrac: 0.46, cwGain: 0, cwNr: true, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
     ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
 
@@ -2722,6 +2722,9 @@
     cwGainLabel();
     cwDec.setGain(S.cwGain);
     $('cwGain').addEventListener('input', (e) => { S.cwGain = +e.target.value; cwDec.setGain(S.cwGain); cwGainLabel(); save(); });
+    const cwNr = () => { cwDec.setNr(S.cwNr); $('cwNr').classList.toggle('on', S.cwNr); };
+    cwNr();
+    $('cwNr').addEventListener('click', () => { S.cwNr = !S.cwNr; cwNr(); save(); });
 
     // CW transmit: the editor keeps sent text locked and coloured, the rest stays editable while sending; finished
     // lines go to the log. SEND / Enter sends, STOP stops, M1-M5 queue a stored text (Shift+click stores the editor).
