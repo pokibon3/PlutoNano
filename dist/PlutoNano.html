@@ -294,6 +294,13 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .ft8-head { color: var(--muted); padding: 0 9px; flex: none; }
 .ft8-head span:nth-child(-n+4), .ft8-row span:nth-child(-n+4) { text-align: right; }
 .ft8-head span:nth-child(1), .ft8-row span:nth-child(1) { text-align: left; }
+/* always-visible scrollbars in the panel: macOS overlay scrollbars hide until scrolled, so a full list did not look
+   scrollable */
+#decPane ::-webkit-scrollbar { width: 10px; height: 10px; }
+#decPane ::-webkit-scrollbar-track { background: var(--panel-2); border-radius: 5px; }
+#decPane ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 5px; border: 2px solid var(--panel-2); }
+#decPane ::-webkit-scrollbar-thumb:hover { background: var(--text); }
+#decPane ::-webkit-scrollbar-corner { background: transparent; }
 .ft8-list { padding: 2px 8px; overflow-y: auto; display: block; text-transform: none; font-size: 12px; user-select: text; }
 .ft8-row span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ft8-row.first { border-top: 1px solid var(--border); }
@@ -313,6 +320,10 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
 .ft8-msg input[type=text] { flex: 1; font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; padding: 2px 6px; }
 .ft8-msg.sending input[type=text] { border-color: var(--danger); color: #ff8a80; }
 .ft8-txkeys { grid-template-columns: 70px 70px 70px auto; justify-content: start; align-items: center; }
+/* RX list as tall as the TX column: TX ON on the bottom row with CLR, and the panel never shorter than the TX column
+   (the splitter's height is a minimum of that) */
+.ft8-txkeys { margin-top: auto; }
+#decPane[data-kind=ft8] { min-height: 252px; }
 @media (max-width: 1000px) { .dec-body.dec-ft8 { flex-direction: column; overflow-y: auto; } .ft8-tx { min-width: 0; overflow: visible; } .ft8-rx { min-height: 140px; } }
 
 /* CW RX (cw_decoder4's web page: status row, text, FFT / oscilloscope, its colours) and CW TX (log over the editor) */
@@ -403,7 +414,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
       <button id="btnUpdate" class="tb-btn primary" title="新しいバージョンに更新（受信を止めて再読み込み）" hidden>Update</button>
     </div>
-    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.6</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.8.7</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
