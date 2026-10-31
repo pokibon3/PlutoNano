@@ -46,17 +46,33 @@
 
   // Band buttons: default frequency, mode and the range used for the
   // wideband scan and for remembering the last frequency in the band.
+  // Laid out 4 per row: the amateur bands from 1.9 MHz up, then the air
+  // band, the Wi-Fi scanner keys and the broadcast bands on the bottom row.
+  // Keys outside the device's range are disabled (HF and 50 MHz need the
+  // RTL-SDR, with direct sampling below 24 MHz).
   const BANDS = [
-    { name: 'FM', f: 80.0e6, mode: 'WFM', lo: 76e6, hi: 95e6, title: 'FM 放送 76–95 MHz' },
-    { name: 'AIR', f: 118.1e6, mode: 'AM', lo: 118e6, hi: 137e6, title: 'エアバンド 118–137 MHz' },
-    // Below the 70 MHz tuning limit: a placeholder key, disabled.
+    // Japanese amateur bands; VHF and up in NFM with a 20 kHz channel step.
+    { name: '1.9', f: 1.910e6, mode: 'CW', lo: 1.81e6, hi: 1.9125e6, title: '1.9 MHz アマチュアバンド 1810–1912.5 kHz' },
+    { name: '3.5', f: 3.535e6, mode: 'LSB', lo: 3.5e6, hi: 3.805e6, title: '3.5 MHz アマチュアバンド 3500–3805 kHz' },
+    { name: '7', f: 7.000e6, mode: 'LSB', lo: 7.0e6, hi: 7.2e6, title: '7 MHz アマチュアバンド 7000–7200 kHz' },
+    { name: '10', f: 10.120e6, mode: 'CW', lo: 10.1e6, hi: 10.15e6, title: '10 MHz アマチュアバンド 10100–10150 kHz' },
+    { name: '14', f: 14.200e6, mode: 'USB', lo: 14.0e6, hi: 14.35e6, title: '14 MHz アマチュアバンド 14000–14350 kHz' },
+    { name: '18', f: 18.130e6, mode: 'USB', lo: 18.068e6, hi: 18.168e6, title: '18 MHz アマチュアバンド 18068–18168 kHz' },
+    { name: '21', f: 21.300e6, mode: 'USB', lo: 21.0e6, hi: 21.45e6, title: '21 MHz アマチュアバンド 21000–21450 kHz' },
+    { name: '24', f: 24.950e6, mode: 'USB', lo: 24.89e6, hi: 24.99e6, title: '24 MHz アマチュアバンド 24890–24990 kHz' },
+    { name: '28', f: 28.500e6, mode: 'USB', lo: 28.0e6, hi: 29.7e6, title: '28 MHz アマチュアバンド 28.0–29.7 MHz' },
     { name: '50', f: 51.0e6, mode: 'NFM', snap: 20e3, lo: 50e6, hi: 54e6, title: '50 MHz アマチュアバンド 50–54 MHz' },
-    // Japanese amateur bands: NFM, 20 kHz channel step.
     { name: '144', f: 145.0e6, mode: 'NFM', snap: 20e3, lo: 144e6, hi: 146e6, title: '144 MHz アマチュアバンド 144–146 MHz' },
     { name: '430', f: 433.0e6, mode: 'NFM', snap: 20e3, lo: 430e6, hi: 440e6, title: '430 MHz アマチュアバンド 430–440 MHz' },
     { name: '1200', f: 1295.0e6, mode: 'NFM', snap: 20e3, lo: 1260e6, hi: 1300e6, title: '1200 MHz アマチュアバンド 1260–1300 MHz' },
     { name: '2400', f: 2427.0e6, mode: 'NFM', snap: 20e3, lo: 2400e6, hi: 2450e6, title: '2400 MHz アマチュアバンド 2400–2450 MHz' },
     { name: '5600', f: 5760.0e6, mode: 'NFM', snap: 20e3, lo: 5650e6, hi: 5850e6, title: '5600 MHz アマチュアバンド 5650–5850 MHz' },
+    { name: 'AIR', f: 118.1e6, mode: 'AM', lo: 118e6, hi: 137e6, title: 'エアバンド 118–137 MHz' },
+    // Wi-Fi scanner keys: a wideband scan over the band instead of a frequency.
+    { name: '2.4G', scan: true, lo: 2400e6, hi: 2500e6, title: '2.4 GHz Wi-Fi をスキャン 2400–2500 MHz（ch1–14）' },
+    { name: '5.6G', scan: true, lo: 5150e6, hi: 5850e6, title: '5 GHz Wi-Fi をスキャン 5150–5850 MHz（W52 / W53 / W56）' },
+    { name: 'AM', f: 594e3, mode: 'AM', snap: 9e3, lo: 531e3, hi: 1602e3, title: '中波 AM 放送 531–1602 kHz' },
+    { name: 'FM', f: 80.0e6, mode: 'WFM', lo: 76e6, hi: 95e6, title: 'FM 放送 76–95 MHz' },
   ];
 
   const DEFAULTS = {
@@ -622,11 +638,11 @@
     }
   }
 
-  // The band containing the VFO (none while scanning), preferring the one
-  // last selected.
+  // The band containing the VFO, preferring the one last selected; while
+  // scanning, the Wi-Fi key whose range is being scanned.
   function activeBand() {
-    const sweeping = state === 'sweep' && !!sweep;
-    const ok = (b) => b && !sweeping && S.vfo >= b.lo && S.vfo <= b.hi;
+    if (state === 'sweep' && sweep) return BANDS.find((b) => b.scan && b.lo === sweep.start && b.hi === sweep.stop) || null;
+    const ok = (b) => b && !b.scan && S.vfo >= b.lo && S.vfo <= b.hi;
     const cur = BANDS.find((b) => b.name === S.band);
     return ok(cur) ? cur : BANDS.find(ok) || null;
   }
@@ -639,10 +655,16 @@
   function selectBand(b) {
     // Remember where we were in the band we are leaving.
     const cur = BANDS.find((x) => x.name === S.band);
-    if (cur && S.vfo >= cur.lo && S.vfo <= cur.hi) S.bandMem[cur.name] = { f: S.vfo, mode: S.mode };
+    if (cur && !cur.scan && S.vfo >= cur.lo && S.vfo <= cur.hi) S.bandMem[cur.name] = { f: S.vfo, mode: S.mode };
     S.band = b.name;
     S.scanStart = b.lo / 1e6;
     S.scanStop = b.hi / 1e6;
+    if (b.scan) {
+      syncControls();
+      save();
+      startSweep();
+      return;
+    }
     const mem = S.bandMem[b.name] || { f: b.f, mode: b.mode };
     S.mode = mem.mode;
     if (b.snap) mode().snap = b.snap;

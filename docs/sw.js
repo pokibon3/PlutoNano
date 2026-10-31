@@ -1,6 +1,6 @@
 // Offline cache for the installed app. CACHE changes with every build,
 // so a new build replaces the cached files.
-const VERSION = '74951fb2593a';
+const VERSION = 'b7e5d3a4afa4';
 const CACHE = 'plutonano-' + VERSION;
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 

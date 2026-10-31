@@ -171,8 +171,9 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 
 .freq-row { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 0; }
 .freq-row .freq { margin-left: auto; }
-#afScope { flex: none; width: 130px; height: 100%; min-height: 0; display: block; }
-.freq { display: flex; align-items: flex-end; user-select: none; cursor: ns-resize; --dh: 34px; }
+/* The scope gives way first so the digits always fit. */
+#afScope { flex: 0 1 130px; min-width: 0; height: 100%; min-height: 0; display: block; }
+.freq { flex: none; display: flex; align-items: flex-end; user-select: none; cursor: ns-resize; --dh: 34px; }
 .freq[hidden] { display: none; }
 .freq .d { display: block; height: var(--dh); width: calc(var(--dh) * 0.78); padding: 0 calc(var(--dh) * 0.05); border-radius: 3px; }
 .freq .d.small { height: calc(var(--dh) * 0.68); width: calc(var(--dh) * 0.68 * 0.78); }
@@ -208,8 +209,8 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 .modes { display: flex; gap: 4px; flex: none; }
 .modes .key { flex: 1; min-width: 0; height: 26px; }
 
-.bands { flex: none; display: grid; grid-template-columns: repeat(2, 50px); grid-template-rows: repeat(4, 1fr); gap: 4px; }
-.bands .key { padding-top: 6px; }
+.bands { flex: none; display: grid; grid-template-columns: repeat(4, 44px); grid-template-rows: repeat(5, 1fr); gap: 4px; }
+.bands .key { padding: 5px 0 0; min-height: 0; }
 
 .dial-box { flex: none; display: flex; align-items: center; gap: 8px; }
 .knobs { display: flex; flex-direction: column; gap: 4px; }
@@ -226,8 +227,8 @@ button.tag:hover:not(:disabled) { border-color: var(--lcd); background: var(--lc
 .dkey.br { right: 0; bottom: 0; border-radius: 22px 6px 6px 6px; }
 #dial:active { cursor: grabbing; }
 
-@container (max-width: 1020px) { .freq { --dh: 30px; } .meter-box { width: 180px; } #afScope { width: 100px; } }
-@container (max-width: 900px) { .bands { display: none; } }
+@container (max-width: 1100px) { .freq { --dh: 30px; } .meter-box { width: 180px; } #afScope { flex-basis: 100px; } }
+@container (max-width: 960px) { .bands { display: none; } }
 @container (max-width: 700px) { .meter-box { display: none; } #afScope { display: none; } }
 @container (max-width: 470px) { .dial-box { display: none; } .freq-box .info .tag:not(.flag):not(#modeBadge) { display: none; } }
 #toast[hidden] { display: none; }
