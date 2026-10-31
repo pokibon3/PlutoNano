@@ -62,7 +62,7 @@
   const DEFAULTS = {
     device: 'pluto', lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
     mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
-    ppm: 0, rtlPpm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
+    ppm: 0, rtlPpm: 0, devGain: {}, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
     fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
@@ -325,6 +325,16 @@
 
   // Device limits into the settings and the controls: sample rates, RF
   // bandwidths, gain range and modes, band keys, scan parameters.
+  // Gain settings are kept per device type: the current device's live in
+  // S.gainMode / S.gain / S.scanGain, the other's in S.devGain.
+  const GAIN_KEYS = ['gainMode', 'gain', 'scanGain'];
+  const DEV_GAIN_DEFAULTS = { rtl: { gainMode: 'slow_attack', gain: 30, scanGain: 30 } };
+  function swapDeviceGain(kind) {
+    S.devGain[S.device] = Object.fromEntries(GAIN_KEYS.map((k) => [k, S[k]]));
+    const g = Object.assign({}, DEV_GAIN_DEFAULTS[kind], S.devGain[kind]);
+    for (const k of GAIN_KEYS) S[k] = g[k] ?? DEFAULTS[k];
+  }
+
   function applyProfile() {
     prof = PROFILES[S.device] || PROFILES.pluto;
     MIN_F = prof.minF; MAX_F = prof.maxF; SCAN_FS = prof.scanFs;
@@ -381,6 +391,7 @@
       await p.open();
       pluto = p;
       if (S.device !== found.kind) {
+        swapDeviceGain(found.kind);
         S.device = found.kind;
         save();
       }
