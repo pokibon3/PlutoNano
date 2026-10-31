@@ -89,6 +89,7 @@
       this.agcIdx = GAINS.length >> 1;
       this.agcAt = 0;
       this.agcBusy = false;
+      this.applied = 0;       // gain in effect, dB (see readRx)
       this.biasTee = false;
       this.regs = new Uint8Array(32);
       this.intFreq = R82XX_IF_FREQ;
@@ -338,6 +339,7 @@
       }
       await this.tWriteMask(0x05, lna, 0x0f);
       await this.tWriteMask(0x07, mix, 0x0f);
+      this.applied = this.curGain;
     }
 
     // Software AGC: at most one gain change every AGC_HOLD_MS, towards
@@ -442,6 +444,7 @@
       await this.demodWrite(0, 0x06, 0x90);         // swap I and Q: the Q input
       await this.demodWrite(0, 0x19, this.manual ? 0x05 : 0x25);   // RTL digital AGC
       this.direct = true;
+      this.applied = this.manual ? 0 : null;
     }
 
     async open() {
@@ -531,7 +534,11 @@
     setGainMode(mode) {
       return this.q.run(async () => {
         this.manual = mode === 'manual';
-        if (this.direct) { await this.demodWrite(0, 0x19, this.manual ? 0x05 : 0x25); return; }
+        if (this.direct) {
+          await this.demodWrite(0, 0x19, this.manual ? 0x05 : 0x25);
+          this.applied = this.manual ? 0 : null;
+          return;
+        }
         await this.i2cRepeater(true);
         try { await this.tApplyGain(); } finally { await this.i2cRepeater(false); }
       });
@@ -608,6 +615,9 @@
             if (v >= 2040 || v <= -2040) clip++;
           }
           iq.lo = lo;
+          // The gain is tagged on completion: queued transfers are filled
+          // with the newest samples, so a gain change shows up in them.
+          iq.gain = this.applied;
           if (u8.length) this.agcBlock(Math.sqrt(pow / u8.length), clip / u8.length);
           submit();
           if (rx.waiters.length) rx.waiters.shift().resolve(iq);
@@ -626,7 +636,9 @@
       for (let i = 0; i < IN_FLIGHT; i++) submit();
     }
 
-    // Interleaved I/Q as Int16Array on the pluto.js scale, tagged with .lo.
+    // Interleaved I/Q as Int16Array on the pluto.js scale, tagged with .lo
+    // and .gain (tuner gain in dB; null under the digital AGC of direct
+    // sampling, where the level is not known).
     readRx() {
       const rx = this.rx;
       if (!rx) return Promise.reject(new Error('RX not started'));

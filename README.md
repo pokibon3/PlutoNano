@@ -93,7 +93,7 @@ RTL2832U + R820T / R820T2 の RTL-SDR（RTL-SDR Blog V3 など）で受信でき
 - ゲイン: 0〜49.6 dB（R820T の LNA + ミキサー、29 段）。AGC はアプリ側で行い、クリップしないよう手動ゲインを上げ下げする（R820T 内蔵の AGC は強い局で ADC が飽和するので使わない）。ダイレクトサンプリングではチューナーを通らないのでゲインは効かず、AGC は RTL2832U のデジタル AGC になる
 - RF bandwidth: チューナーの IF フィルタ（Auto はサンプルレートに合わせる）
 - **Bias-T**: アンテナ端子に 4.5 V を出す（V3 の GPIO 0）。接続のたびに OFF に戻る
-- Freq. corr.（ppm）はチューナーとサンプルレートの両方を補正する。S メーターの dBm は Pluto SDR Nano 用の補正値のままなので、必要なら **S-meter cal** で合わせ直す
+- Freq. corr.（ppm）はチューナーとサンプルレートの両方を補正する。S メーターの補正値（S-meter cal）は Pluto SDR Nano とは別に保存され、初期値 −17 dB は最大ゲインでの RTL-SDR 自身の雑音（約 −169 dBm/Hz）から決めた目安。ダイレクトサンプリング（HF）を AGC で受信中はレベルが分からないので dBm を表示しない（Manual なら表示）
 - バンドキーは 50 MHz が使え、2400 / 5600 は無効。Wideband scan は 2.4 MSPS・1.92 MHz ステップ
 - Windows では Zadig で RTL-SDR（Bulk-In, Interface 0）に WinUSB ドライバを入れる。Linux では `dvb_usb_rtl28xxu` をブラックリストに入れ、udev ルールでアクセスを許可する。macOS はそのまま使える
 

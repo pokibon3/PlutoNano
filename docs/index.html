@@ -417,7 +417,7 @@ button.ptt.on { background: #c62a22; border-color: #ff5b4a; color: #fff; box-sha
       <button id="btnInstall" class="tb-btn" title="アプリとしてインストール" hidden>Install</button>
       <button id="btnUpdate" class="tb-btn primary" title="新しいバージョンに更新（受信を止めて再読み込み）" hidden>Update</button>
     </div>
-    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.9.0</small> <span>Software Defined Radio</span></div>
+    <div class="brand"><b>Pluto SDR Nano</b><small class="ver">v1.9.2</small> <span>Software Defined Radio</span></div>
     <div class="tb-right">
       <button id="btnPlay" class="tb-btn play" title="Start / Stop (Space)" disabled>&#9654; Start</button>
       <button id="btnConnect" class="tb-btn primary">Connect</button>
@@ -1383,6 +1383,10 @@ function emitSpectrum(lo) {
   postMessage({ type: 'fft', db: out, f0: lo - cfg.fs / 2, binHz: cfg.fs / cfg.fftSize }, [out.buffer]);
 }
 
+// RX gain of the current block when the device tags it (RTL-SDR), so the
+// S-meter follows gain steps of its AGC exactly.
+let blockGain;
+
 function handleIQ(iq, lo) {
   const n = iq.length >> 1;
   if (!n) return;
@@ -1417,7 +1421,7 @@ function handleIQ(iq, lo) {
 
   if (total - levelAt >= cfg.fs / 15) {
     levelAt = total;
-    postMessage({ type: 'level', db: rx.levelDb, stereo: rx.stereoLocked });
+    postMessage({ type: 'level', db: rx.levelDb, gain: blockGain, stereo: rx.stereoLocked });
   }
 }
 
@@ -1446,6 +1450,7 @@ self.onmessage = (e) => {
       };
       break;
     case 'iq':
+      blockGain = m.gain;
       handleIQ(m.data, m.lo);
       break;
     case 'sweep':
@@ -3037,6 +3042,7 @@ onmessage = async ({ data: m }) => {
       this.agcIdx = GAINS.length >> 1;
       this.agcAt = 0;
       this.agcBusy = false;
+      this.applied = 0;       // gain in effect, dB (see readRx)
       this.biasTee = false;
       this.regs = new Uint8Array(32);
       this.intFreq = R82XX_IF_FREQ;
@@ -3286,6 +3292,7 @@ onmessage = async ({ data: m }) => {
       }
       await this.tWriteMask(0x05, lna, 0x0f);
       await this.tWriteMask(0x07, mix, 0x0f);
+      this.applied = this.curGain;
     }
 
     // Software AGC: at most one gain change every AGC_HOLD_MS, towards
@@ -3390,6 +3397,7 @@ onmessage = async ({ data: m }) => {
       await this.demodWrite(0, 0x06, 0x90);         // swap I and Q: the Q input
       await this.demodWrite(0, 0x19, this.manual ? 0x05 : 0x25);   // RTL digital AGC
       this.direct = true;
+      this.applied = this.manual ? 0 : null;
     }
 
     async open() {
@@ -3479,7 +3487,11 @@ onmessage = async ({ data: m }) => {
     setGainMode(mode) {
       return this.q.run(async () => {
         this.manual = mode === 'manual';
-        if (this.direct) { await this.demodWrite(0, 0x19, this.manual ? 0x05 : 0x25); return; }
+        if (this.direct) {
+          await this.demodWrite(0, 0x19, this.manual ? 0x05 : 0x25);
+          this.applied = this.manual ? 0 : null;
+          return;
+        }
         await this.i2cRepeater(true);
         try { await this.tApplyGain(); } finally { await this.i2cRepeater(false); }
       });
@@ -3556,6 +3568,9 @@ onmessage = async ({ data: m }) => {
             if (v >= 2040 || v <= -2040) clip++;
           }
           iq.lo = lo;
+          // The gain is tagged on completion: queued transfers are filled
+          // with the newest samples, so a gain change shows up in them.
+          iq.gain = this.applied;
           if (u8.length) this.agcBlock(Math.sqrt(pow / u8.length), clip / u8.length);
           submit();
           if (rx.waiters.length) rx.waiters.shift().resolve(iq);
@@ -3574,7 +3589,9 @@ onmessage = async ({ data: m }) => {
       for (let i = 0; i < IN_FLIGHT; i++) submit();
     }
 
-    // Interleaved I/Q as Int16Array on the pluto.js scale, tagged with .lo.
+    // Interleaved I/Q as Int16Array on the pluto.js scale, tagged with .lo
+    // and .gain (tuner gain in dB; null under the digital AGC of direct
+    // sampling, where the level is not known).
     readRx() {
       const rx = this.rx;
       if (!rx) return Promise.reject(new Error('RX not started'));
@@ -4555,7 +4572,7 @@ const PlutoCwSender = (function () {
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
-    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, rtlMeterCal: -17, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
     audioOut: '', audioIn: '', decoder: '', decFrac: 0.46, cwGain: 0, cwNr: true, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
     ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
@@ -4620,6 +4637,13 @@ const PlutoCwSender = (function () {
       dirty = true;
     } else if (m.type === 'level') {
       levelDb = m.db;
+      // The RTL-SDR tags blocks with their gain (null: unknown, direct
+      // sampling's digital AGC); the Pluto's is polled by startRssi.
+      if (m.gain !== undefined) {
+        gainTagged = true;
+        gainKnown = m.gain !== null;
+        if (gainKnown && m.gain !== curGain) { curGain = m.gain; updatePanel(); }
+      }
       stereoLocked = !!m.stereo;
       updateMeter();
     } else if (m.type === 'sweep') {
@@ -4976,6 +5000,8 @@ const PlutoCwSender = (function () {
     const token = ++streamToken;
     state = 'live';
     lastFFT = null;
+    gainTagged = false;
+    gainKnown = true;
     try {
       await pluto.setKernelBuffers(LIVE_KERNEL_BUFFERS);
       await applySource();
@@ -4999,7 +5025,7 @@ const PlutoCwSender = (function () {
           // The RTL-SDR driver tags each block with its LO.
           const n = rxReads++;
           const lo = iq.lo ?? loForRead(n);
-          worker.postMessage({ type: 'iq', data: iq, lo }, [iq.buffer]);
+          worker.postMessage({ type: 'iq', data: iq, lo, gain: iq.gain }, [iq.buffer]);
         } catch (e) {
           if (token === streamToken) onDeviceLost('受信エラー: ' + e.message);
           break;
@@ -5035,8 +5061,7 @@ const PlutoCwSender = (function () {
       try {
         const r = pluto.getRssi ? await pluto.getRssi() : null;
         const g = await pluto.getGain();
-        curGain = g;
-        updatePanel();
+        if (!gainTagged) { curGain = g; updatePanel(); }
         $('rssiVal').textContent = (r === null ? '' : `${r.toFixed(1)} dB · `) + `gain ${g.toFixed(0)} dB` +
           (pluto.direct ? ' · direct sampling' : '');
         if (S.gainMode !== 'manual') $('gainVal').textContent = g.toFixed(0) + ' dB';
@@ -5242,8 +5267,11 @@ const PlutoCwSender = (function () {
   // Channel power in dBm ~ dBFS - RX gain + calibration. S9 = -93 dBm
   // (VHF/UHF convention), 6 dB per S unit; above S9 the scale is in dB.
   const S9_DBM = -93;
-  let curGain = S.gain;
-  const toDbm = (dbfs) => dbfs - curGain + S.meterCal;
+  let curGain = S.gain, gainTagged = false, gainKnown = true;
+  // The calibration is kept per device type. The RTL-SDR's -17 dB puts its
+  // own noise at max gain (antenna off) at about -169 dBm/Hz.
+  const calKey = () => (S.device === 'rtl' ? 'rtlMeterCal' : 'meterCal');
+  const toDbm = (dbfs) => dbfs - curGain + S[calKey()];
   // Scale position 0..1: S0..S9 fill the left 60 %, S9..+60 dB the rest.
   function meterPos(dbm) {
     if (dbm <= S9_DBM) return clamp((dbm - (S9_DBM - 54)) / 54, 0, 1) * 0.6;
@@ -5270,11 +5298,12 @@ const PlutoCwSender = (function () {
       meter.sq = null;
       return;
     }
-    const live = state === 'live' && levelDb > -199;
+    const live = state === 'live' && levelDb > -199 && gainKnown;
     const dbm = toDbm(levelDb);
     meter.target = live ? meterPos(dbm) : 0;
     $('meterText').textContent = live ? dbm.toFixed(1) + ' dBm' : '--- dBm';
-    $('meterText').title = live ? `${levelDb.toFixed(1)} dBFS · gain ${Math.round(curGain)} dB` : '';
+    $('meterText').title = live ? `${levelDb.toFixed(1)} dBFS · gain ${Math.round(curGain)} dB`
+      : !gainKnown && state === 'live' ? 'ダイレクトサンプリングの AGC 中はレベルを測れません（Manual で表示）' : '';
     $('meterS').textContent = live ? sText(dbm) : 'S-';
     $('stereoInd').classList.toggle('on', state === 'live' && S.mode === 'WFM' && stereoLocked);
     meter.sq = S.squelchOn ? meterPos(toDbm(S.squelch)) : null;
@@ -5293,7 +5322,7 @@ const PlutoCwSender = (function () {
     }
     if (meter.x >= meter.peak) { meter.peak = meter.x; meter.peakAt = now; }
     else if (now - meter.peakAt > 1500) meter.peak = Math.max(meter.x, meter.peak - dt * 0.6);
-    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S.meterCal, tx.on,
+    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S[calKey()], tx.on,
       smeterCanvas.clientWidth, smeterCanvas.clientHeight, dpr].join();
     if (key !== meter.key) { meter.key = key; drawMeter(); }
   }
@@ -6183,7 +6212,7 @@ const PlutoCwSender = (function () {
     $('bwBadge').textContent = `FIL${m.fil + 1} ${fmtStep(m.bandwidth)}`;
     $('tsBadge').textContent = 'TS ' + fmtStep(m.snap);
     $('agcBadge').textContent = S.device === 'rtl' && S.gainMode !== 'manual' ? 'AGC' : GAIN_MODES[S.gainMode] || S.gainMode;
-    $('gainBadge').textContent = 'G ' + Math.round(curGain);
+    $('gainBadge').textContent = 'G ' + (gainKnown ? Math.round(curGain) : '--');
     $('srBadge').textContent = +(S.sampleRate / 1e6).toFixed(3) + 'M';
     $('sqlBadge').classList.toggle('on', S.squelchOn);
     $('fineBtn').disabled = !STEPS.some((x) => x < m.snap);
@@ -6788,7 +6817,7 @@ const PlutoCwSender = (function () {
     $('gainMode').value = S.gainMode;
     $('gain').value = S.gain;
     $('ppm').value = S.ppm;
-    $('meterCal').value = S.meterCal;
+    $('meterCal').value = S[calKey()];
     if (S.gainMode === 'manual') curGain = S.gain;
     $('gain').disabled = S.gainMode !== 'manual';
     $('gainVal').textContent = S.gain + ' dB';
@@ -6873,8 +6902,9 @@ const PlutoCwSender = (function () {
       }
     });
     on('meterCal', 'change', (e) => {
-      S.meterCal = clamp(Math.round((+e.target.value || 0) * 2) / 2, -60, 60);
-      e.target.value = S.meterCal;
+      const k = calKey();
+      S[k] = clamp(Math.round((+e.target.value || 0) * 2) / 2, -60, 60);
+      e.target.value = S[k];
       updateMeter();
       save();
     });

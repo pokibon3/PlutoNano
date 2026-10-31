@@ -67,7 +67,7 @@
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
     band: null, bandMem: {},
-    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
+    meterStyle: 'needle', panelTheme: 'cyan', meterCal: -10, rtlMeterCal: -17, autoTs: true, txEnabled: false, txAtten: -30, micGain: 20,
     audioOut: '', audioIn: '', decoder: '', decFrac: 0.46, cwGain: 0, cwNr: true, cwWpm: 20, cwMem: ['CQ CQ CQ DE ', '', '', '', ''],
     ft8Cq: false, ft8My: '', ft8Grid: '', ft8TxHz: 1500, ft8Lvl: 0.9, ft8Per: 0, ft8Auto: true,
   };
@@ -132,6 +132,13 @@
       dirty = true;
     } else if (m.type === 'level') {
       levelDb = m.db;
+      // The RTL-SDR tags blocks with their gain (null: unknown, direct
+      // sampling's digital AGC); the Pluto's is polled by startRssi.
+      if (m.gain !== undefined) {
+        gainTagged = true;
+        gainKnown = m.gain !== null;
+        if (gainKnown && m.gain !== curGain) { curGain = m.gain; updatePanel(); }
+      }
       stereoLocked = !!m.stereo;
       updateMeter();
     } else if (m.type === 'sweep') {
@@ -488,6 +495,8 @@
     const token = ++streamToken;
     state = 'live';
     lastFFT = null;
+    gainTagged = false;
+    gainKnown = true;
     try {
       await pluto.setKernelBuffers(LIVE_KERNEL_BUFFERS);
       await applySource();
@@ -511,7 +520,7 @@
           // The RTL-SDR driver tags each block with its LO.
           const n = rxReads++;
           const lo = iq.lo ?? loForRead(n);
-          worker.postMessage({ type: 'iq', data: iq, lo }, [iq.buffer]);
+          worker.postMessage({ type: 'iq', data: iq, lo, gain: iq.gain }, [iq.buffer]);
         } catch (e) {
           if (token === streamToken) onDeviceLost('受信エラー: ' + e.message);
           break;
@@ -547,8 +556,7 @@
       try {
         const r = pluto.getRssi ? await pluto.getRssi() : null;
         const g = await pluto.getGain();
-        curGain = g;
-        updatePanel();
+        if (!gainTagged) { curGain = g; updatePanel(); }
         $('rssiVal').textContent = (r === null ? '' : `${r.toFixed(1)} dB · `) + `gain ${g.toFixed(0)} dB` +
           (pluto.direct ? ' · direct sampling' : '');
         if (S.gainMode !== 'manual') $('gainVal').textContent = g.toFixed(0) + ' dB';
@@ -754,8 +762,11 @@
   // Channel power in dBm ~ dBFS - RX gain + calibration. S9 = -93 dBm
   // (VHF/UHF convention), 6 dB per S unit; above S9 the scale is in dB.
   const S9_DBM = -93;
-  let curGain = S.gain;
-  const toDbm = (dbfs) => dbfs - curGain + S.meterCal;
+  let curGain = S.gain, gainTagged = false, gainKnown = true;
+  // The calibration is kept per device type. The RTL-SDR's -17 dB puts its
+  // own noise at max gain (antenna off) at about -169 dBm/Hz.
+  const calKey = () => (S.device === 'rtl' ? 'rtlMeterCal' : 'meterCal');
+  const toDbm = (dbfs) => dbfs - curGain + S[calKey()];
   // Scale position 0..1: S0..S9 fill the left 60 %, S9..+60 dB the rest.
   function meterPos(dbm) {
     if (dbm <= S9_DBM) return clamp((dbm - (S9_DBM - 54)) / 54, 0, 1) * 0.6;
@@ -782,11 +793,12 @@
       meter.sq = null;
       return;
     }
-    const live = state === 'live' && levelDb > -199;
+    const live = state === 'live' && levelDb > -199 && gainKnown;
     const dbm = toDbm(levelDb);
     meter.target = live ? meterPos(dbm) : 0;
     $('meterText').textContent = live ? dbm.toFixed(1) + ' dBm' : '--- dBm';
-    $('meterText').title = live ? `${levelDb.toFixed(1)} dBFS · gain ${Math.round(curGain)} dB` : '';
+    $('meterText').title = live ? `${levelDb.toFixed(1)} dBFS · gain ${Math.round(curGain)} dB`
+      : !gainKnown && state === 'live' ? 'ダイレクトサンプリングの AGC 中はレベルを測れません（Manual で表示）' : '';
     $('meterS').textContent = live ? sText(dbm) : 'S-';
     $('stereoInd').classList.toggle('on', state === 'live' && S.mode === 'WFM' && stereoLocked);
     meter.sq = S.squelchOn ? meterPos(toDbm(S.squelch)) : null;
@@ -805,7 +817,7 @@
     }
     if (meter.x >= meter.peak) { meter.peak = meter.x; meter.peakAt = now; }
     else if (now - meter.peakAt > 1500) meter.peak = Math.max(meter.x, meter.peak - dt * 0.6);
-    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S.meterCal, tx.on,
+    const key = [S.meterStyle, S.panelTheme, meter.x.toFixed(4), meter.peak.toFixed(3), meter.sq, curGain, S[calKey()], tx.on,
       smeterCanvas.clientWidth, smeterCanvas.clientHeight, dpr].join();
     if (key !== meter.key) { meter.key = key; drawMeter(); }
   }
@@ -1695,7 +1707,7 @@
     $('bwBadge').textContent = `FIL${m.fil + 1} ${fmtStep(m.bandwidth)}`;
     $('tsBadge').textContent = 'TS ' + fmtStep(m.snap);
     $('agcBadge').textContent = S.device === 'rtl' && S.gainMode !== 'manual' ? 'AGC' : GAIN_MODES[S.gainMode] || S.gainMode;
-    $('gainBadge').textContent = 'G ' + Math.round(curGain);
+    $('gainBadge').textContent = 'G ' + (gainKnown ? Math.round(curGain) : '--');
     $('srBadge').textContent = +(S.sampleRate / 1e6).toFixed(3) + 'M';
     $('sqlBadge').classList.toggle('on', S.squelchOn);
     $('fineBtn').disabled = !STEPS.some((x) => x < m.snap);
@@ -2300,7 +2312,7 @@
     $('gainMode').value = S.gainMode;
     $('gain').value = S.gain;
     $('ppm').value = S.ppm;
-    $('meterCal').value = S.meterCal;
+    $('meterCal').value = S[calKey()];
     if (S.gainMode === 'manual') curGain = S.gain;
     $('gain').disabled = S.gainMode !== 'manual';
     $('gainVal').textContent = S.gain + ' dB';
@@ -2385,8 +2397,9 @@
       }
     });
     on('meterCal', 'change', (e) => {
-      S.meterCal = clamp(Math.round((+e.target.value || 0) * 2) / 2, -60, 60);
-      e.target.value = S.meterCal;
+      const k = calKey();
+      S[k] = clamp(Math.round((+e.target.value || 0) * 2) / 2, -60, 60);
+      e.target.value = S[k];
       updateMeter();
       save();
     });

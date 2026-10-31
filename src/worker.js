@@ -56,6 +56,10 @@ function emitSpectrum(lo) {
   postMessage({ type: 'fft', db: out, f0: lo - cfg.fs / 2, binHz: cfg.fs / cfg.fftSize }, [out.buffer]);
 }
 
+// RX gain of the current block when the device tags it (RTL-SDR), so the
+// S-meter follows gain steps of its AGC exactly.
+let blockGain;
+
 function handleIQ(iq, lo) {
   const n = iq.length >> 1;
   if (!n) return;
@@ -90,7 +94,7 @@ function handleIQ(iq, lo) {
 
   if (total - levelAt >= cfg.fs / 15) {
     levelAt = total;
-    postMessage({ type: 'level', db: rx.levelDb, stereo: rx.stereoLocked });
+    postMessage({ type: 'level', db: rx.levelDb, gain: blockGain, stereo: rx.stereoLocked });
   }
 }
 
@@ -119,6 +123,7 @@ self.onmessage = (e) => {
       };
       break;
     case 'iq':
+      blockGain = m.gain;
       handleIQ(m.data, m.lo);
       break;
     case 'sweep':
