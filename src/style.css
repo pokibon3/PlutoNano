@@ -68,6 +68,7 @@ summary {
 summary::before { content: "▸ "; color: var(--muted); }
 details[open] > summary::before { content: "▾ "; }
 .row { display: flex; align-items: center; gap: 8px; margin: 5px 2px; min-height: 26px; }
+.row[hidden] { display: none; }
 .row .lbl { width: 92px; flex: none; color: var(--muted); }
 .row .lbl.chk { display: flex; align-items: center; gap: 4px; color: var(--text); }
 .row select, .row input[type=number] { flex: 1; }

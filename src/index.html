@@ -94,6 +94,8 @@
       <div class="row" title="S メーターの dBm 換算の補正値。既知のレベルの信号を入れて表示が合うように調整します">
         <span class="lbl">S-meter cal</span>
         <input id="meterCal" type="number" min="-60" max="60" step="0.5"><span class="unit">dB</span></div>
+      <div class="row" id="biasTeeRow" hidden title="RTL-SDR Blog V3 のアンテナ端子に 4.5 V を出します（LNA などの給電用）。給電を想定しない機器をつないでいるときは入れないでください">
+        <label class="lbl chk"><input id="biasTee" type="checkbox"> Bias-T</label><span class="hint">4.5 V をアンテナへ</span></div>
       <div class="row"><span class="lbl">LO</span><span id="loVal" class="val mono">—</span></div>
       <div class="row"><span class="lbl">RSSI</span><span id="rssiVal" class="val mono">—</span></div>
     </details>
@@ -324,7 +326,7 @@
 <div id="intro" hidden>
   <div class="intro-box">
     <h1>Pluto SDR Nano</h1>
-    <p>Pluto SDR Nano を USB で接続し、<b>Connect</b> を押してデバイスを選択してください。</p>
+    <p>Pluto SDR Nano または RTL-SDR（V3 など）を USB で接続し、<b>Connect</b> を押してデバイスを選択してください。</p>
     <ul>
       <li>Chrome / Edge が必要です（WebUSB）。</li>
       <li>スペクトラム / ウォーターフォールをクリックで同調、ドラッグで VFO 移動、ホイールでステップ同調、Ctrl+ホイールでズーム。</li>
@@ -345,6 +347,7 @@
 <script type="text/plain" id="ft8-worker-src">/*INLINE:ft8/ft8-worker.js*/</script>
 <script type="text/plain" id="ft8core-wasm">/*INLINE_B64:ft8/ft8core.wasm*/</script>
 <script>/*INLINE:pluto.js*/</script>
+<script>/*INLINE:rtlsdr.js*/</script>
 <script>/*INLINE:decoders.js*/</script>
 <script>/*INLINE:cwview.js*/</script>
 <script>/*INLINE:cwsend.js*/</script>

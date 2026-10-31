@@ -1,6 +1,6 @@
 # Pluto SDR Nano
 
-Pluto SDR Nano（ADALM-Pluto 互換の小型 SDR）専用の、ブラウザで動く SDR 受信機。WebUSB で Pluto SDR Nano と直接通信するので、サーバーもドライバのインストールも要らない。画面は SDR++ を参考にし、操作部は ICOM の無線機風にしている。
+Pluto SDR Nano（ADALM-Pluto 互換の小型 SDR）用の、ブラウザで動く SDR 受信機。RTL-SDR（RTL-SDR Blog V3 など）でも受信できる。WebUSB でデバイスと直接通信するので、サーバーもドライバのインストールも要らない。画面は SDR++ を参考にし、操作部は ICOM の無線機風にしている。
 
 **アプリ: https://pokibon3.github.io/PlutoNano/**
 
@@ -8,12 +8,12 @@ Pluto SDR Nano（ADALM-Pluto 互換の小型 SDR）専用の、ブラウザで�
 
 ## 使い方
 
-1. Pluto SDR Nano を USB で接続する（`iio_info` や `screen` など他のアプリが掴んでいないこと）
+1. Pluto SDR Nano か RTL-SDR を USB で接続する（`iio_info`、SDR#、`rtl_tcp` など他のアプリが掴んでいないこと）
 2. Chrome / Edge で https://pokibon3.github.io/PlutoNano/ を開く（ローカルの `dist/PlutoNano.html` でもよい）
-3. **Connect** → 一覧から Pluto SDR Nano を選ぶ。接続すると自動で受信を始める
+3. **Connect** → 一覧からデバイスを選ぶ。接続すると自動で受信を始める
 4. 最初の 1 回だけ、画面をクリックすると音が出る（ブラウザの自動再生制限のため）
 
-2 回目以降は、ページを開くと許可済みの Pluto SDR Nano に自動で接続する。
+2 回目以降は、ページを開くと許可済みのデバイスに自動で接続する（両方許可していれば前回使った方）。
 
 ### アプリとしてインストール（PWA）
 
@@ -49,7 +49,7 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 | 音声スコープ | 周波数表示の左。復調後の音声のスペクトラムに、フィルタの通過帯域を網掛けで重ねる |
 | 情報行 | モード（クリックで切り替え）、ST（ステレオ受信中）、フィルタ（FIL1〜3 と帯域幅）、ステップ、AGC、ゲイン、サンプルレート、SQL、TX（送信中）、◐（配色をシアン / アンバーに切り替え）、時計 |
 | モードキー | 周波数表示の下。NFM / WFM / AM / USB / LSB / CW |
-| バンドキー | ダイヤルの左。FM / AIR / 50 / 144 / 430 / 1200 / 2400 / 5600（50 は 70 MHz 未満で受信できないため無効） |
+| バンドキー | ダイヤルの左。FM / AIR / 50 / 144 / 430 / 1200 / 2400 / 5600（デバイスの受信範囲外のキーは無効。Pluto SDR Nano では 50、RTL-SDR では 2400 / 5600） |
 | メインダイヤル | ドラッグで回す、またはホイール。1 回転 50 ステップ、時計回りで周波数が上がる。勢いよく回すと惰性で回り続ける |
 | ダイヤル周りのキー | FINE / FAST で同調ステップ（10 Hz〜100 kHz）を 1 段ずつ小さく / 大きく、AUTO は速く回したときステップを 10 倍、FIL でフィルタを FIL1 → FIL2 → FIL3 と切り替え |
 | フィルタ | モードごとに 3 つ。SSB 3.0k / 2.4k / 1.8k（100 Hz ローカット）、CW 1.2k / 500 / 250、AM 9k / 6k / 3k、NFM 15k / 10k / 7k、WFM 200k / 150k / 100k。帯域幅を変えると選択中の FIL に記憶する |
@@ -81,6 +81,21 @@ WebUSB が必要なので、Chromium 系ブラウザ（Chrome / Edge）でのみ
 - Wideband scan: 20 MSPS・16 MHz ステップで指定範囲を掃引する（約 7 ms/ステップ）。結果をクリックすると、その周波数で受信を始める
 - 受信範囲は 70 MHz〜6 GHz（AD9364 の仕様。70 MHz 未満を受けるにはアップコンバーターが必要）
 - サンプルレート: 2.4〜7.68 MSPS。2.083 MSPS 未満は Pluto SDR Nano に FIR フィルタの読み込みが必要なので選べない（受け付けられないレートを書き込むと、次のレート変更で Pluto SDR Nano が固まる）。USB 2.0 の実効上限が約 8 MSPS なので、連続受信は 6 MSPS 以下を推奨。7.68 MSPS では音が途切れることがある
+
+### RTL-SDR
+
+RTL2832U + R820T / R820T2 の RTL-SDR（RTL-SDR Blog V3 など）で受信できる。送信はできない。R828D の RTL-SDR Blog V4 や E4000 などほかのチューナーは未対応（接続時にそう表示する）。
+
+- 受信範囲: 24〜1766 MHz（R820T2）。24 MHz 未満は自動でダイレクトサンプリング（Q ブランチ、V3 の HF 入力）に切り替え、0.5〜24 MHz を受信する
+  - ダイレクトサンプリングは 28.8 MSPS の ADC で直接受けるので、14.4 MHz を境に折り返した信号（f と 28.8 MHz − f）が重なる。14.4 MHz より上はスペクトルの向きを直して表示する
+  - 切り替えにはチューナーの初期化で約 0.5 秒かかる。RSSI 欄に「direct sampling」と出る
+- サンプルレート: 1.024〜3.2 MSPS。2.4 MSPS 以下を推奨（それより上は USB の転送が間に合わず途切れることがある）
+- ゲイン: 0〜49.6 dB（R820T の LNA + ミキサー、29 段）。AGC はアプリ側で行い、クリップしないよう手動ゲインを上げ下げする（R820T 内蔵の AGC は強い局で ADC が飽和するので使わない）。ダイレクトサンプリングではチューナーを通らないのでゲインは効かず、AGC は RTL2832U のデジタル AGC になる
+- RF bandwidth: チューナーの IF フィルタ（Auto はサンプルレートに合わせる）
+- **Bias-T**: アンテナ端子に 4.5 V を出す（V3 の GPIO 0）。接続のたびに OFF に戻る
+- Freq. corr.（ppm）はチューナーとサンプルレートの両方を補正する。S メーターの dBm は Pluto SDR Nano 用の補正値のままなので、必要なら **S-meter cal** で合わせ直す
+- バンドキーは 50 MHz が使え、2400 / 5600 は無効。Wideband scan は 2.4 MSPS・1.92 MHz ステップ
+- Windows では Zadig で RTL-SDR（Bulk-In, Interface 0）に WinUSB ドライバを入れる。Linux では `dvb_usb_rtl28xxu` をブラックリストに入れ、udev ルールでアクセスを許可する。macOS はそのまま使える
 
 ### CW / FT8 / FT4（受信・送信）
 
@@ -136,6 +151,7 @@ Pluto SDR Nano は `fw_setenv attr_val ad9364`（Rev.B）で 70 MHz〜6 GHz に�
 
 ```
 src/pluto.js          WebUSB 上の IIOD プロトコル（libiio USB バックエンド相当）
+src/rtlsdr.js         RTL-SDR ドライバ（RTL2832U + R820T / R820T2、librtlsdr から移植）
 src/dsp.js            FFT・FIR・デシメーション・復調・ステレオ PLL・リサンプラ
 src/worker.js         DSP ワーカー（スペクトラム + 音声）
 src/tx-worker.js      送信ワーカー（マイク / 電鍵 → 変調 → I/Q）
@@ -160,6 +176,7 @@ docs/                 GitHub Pages で公開される PWA（build で生成）
 npm install                  # node-usb（実機テスト用）
 npm run build                # dist/PlutoNano.html と docs/ を生成
 npm run test:usb             # 実機で pluto.js を検証（Node + node-usb）
+node tools/test-rtlsdr.mjs   # 実機で rtlsdr.js を検証（受信・同調・ゲイン・ダイレクトサンプリング）
 node tools/test-tx.mjs       # 実機で送信経路を検証（最小出力 −89.75 dB、430 MHz 帯）
 node tools/test-dsp.mjs      # 合成信号で復調・変調を検証
 node tools/test-decoders.mjs # 合成信号で CW / FT8 / FT4 の受信と、変調→復調→解読の送信経路を検証（build 後）
@@ -175,5 +192,6 @@ node tools/browser-check.mjs shot.png --mock   # ヘッドレス Chrome + 擬似
 | `CLIP=x,y,w,h` | 指定範囲だけを 2 倍で撮る |
 | `INSTALL=1` | PWA の manifest・インストール可否・service worker を確認 |
 | `EVAL_FILE=path` | ページ内で JavaScript を実行して結果を表示 |
+| `MOCK=tools/mock-rtl.js` | `--mock` の擬似デバイスを RTL-SDR にする（既定は Pluto SDR Nano の `tools/mock-usb.js`） |
 
 公開は `main` ブランチの `docs/` を GitHub Pages で配信している。`npm run build` してコミット・push すれば更新される。

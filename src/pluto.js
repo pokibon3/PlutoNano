@@ -431,6 +431,8 @@
   }
 
   Pluto.parseContext = parseContext;
+  Pluto.FILTERS = [{ vendorId: VENDOR_ID, productId: PRODUCT_ID }];
+  Pluto.matches = (d) => d.vendorId === VENDOR_ID && d.productId === PRODUCT_ID;
   Pluto.VENDOR_ID = VENDOR_ID;
   Pluto.PRODUCT_ID = PRODUCT_ID;
 

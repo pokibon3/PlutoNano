@@ -41,7 +41,7 @@ const send = (method, params = {}) => new Promise((r) => { const i = ++id; pendi
 
 await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
-if (mock) await send('Page.addScriptToEvaluateOnNewDocument', { source: readFileSync('tools/mock-usb.js', 'utf8') });
+if (mock) await send('Page.addScriptToEvaluateOnNewDocument', { source: readFileSync(process.env.MOCK || 'tools/mock-usb.js', 'utf8') });
 await send('Page.navigate', { url: page });
 await sleep(1500);
 const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true })).result.result.value;

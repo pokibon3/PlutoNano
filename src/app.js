@@ -4,8 +4,7 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const MIN_F = 70e6, MAX_F = 6e9;
-  const SCAN_FS = 20e6, SCAN_BLOCK = 16384, SCAN_FFT = 1024, SCAN_USE = 0.8;
+  const SCAN_BLOCK = 16384, SCAN_FFT = 1024, SCAN_USE = 0.8;
 
   // filters: FIL1..FIL3 bandwidths; fil selects one and bandwidth follows it.
   const MODE_DEFAULTS = {
@@ -19,11 +18,31 @@
   // Must match dsp.js: SSB passband low cut and the CW tone.
   const SSB_LOWCUT = 100, CW_PITCH = 600;   // as dsp.js
   const BW_LIMITS = { WFM: [50e3, 250e3], NFM: [3e3, 50e3], AM: [1e3, 30e3], USB: [500, 6e3], LSB: [500, 6e3], CW: [100, 3e3] };
-  // Below ~2.083 MSPS the AD9361 needs a FIR filter loaded; without one the
-  // driver rejects the rate and the next rate change hangs the device.
-  const SAMPLE_RATES = [2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6];
-  const MIN_RATE = 2.4e6;
-  const RF_BWS = [0, 0.2e6, 0.5e6, 1e6, 2e6, 4e6, 6e6, 10e6, 20e6, 56e6];
+
+  // What differs between the supported devices. The limits of the last
+  // device used apply while none is connected.
+  const PROFILES = {
+    pluto: {
+      name: 'Pluto SDR Nano', driver: () => window.Pluto, minF: 70e6, maxF: 6e9,
+      // Below ~2.083 MSPS the AD9361 needs a FIR filter loaded; without one the
+      // driver rejects the rate and the next rate change hangs the device.
+      rates: [2.4e6, 3.072e6, 4e6, 5e6, 6e6, 7.68e6], rate: 2.4e6, usbLimit: 6e6,
+      rfBws: [0, 0.2e6, 0.5e6, 1e6, 2e6, 4e6, 6e6, 10e6, 20e6, 56e6],
+      gain: [-3, 71], gainModes: [['manual', 'Manual'], ['slow_attack', 'AGC slow'], ['fast_attack', 'AGC fast'], ['hybrid', 'AGC hybrid']],
+      scanFs: 20e6, scanBw: 18e6, busy: 'iio_info など',
+    },
+    // RTL-SDR Blog V3 and other RTL2832U + R820T / R820T2 dongles. Below
+    // 24 MHz the driver switches to direct sampling (the V3's HF input).
+    rtl: {
+      name: 'RTL-SDR', driver: () => window.RtlSdr, minF: 0.5e6, maxF: 1766e6,
+      rates: [1.024e6, 1.4e6, 1.8e6, 2.048e6, 2.4e6, 2.56e6, 2.88e6, 3.2e6], rate: 2.4e6, usbLimit: 2.4e6,
+      rfBws: [0, 0.3e6, 0.5e6, 1e6, 1.5e6, 2e6],
+      gain: [0, 50], gainModes: [['manual', 'Manual'], ['slow_attack', 'AGC']],
+      scanFs: 2.4e6, scanBw: 2.4e6, busy: 'SDR# や rtl_tcp など',
+    },
+  };
+  let prof = PROFILES.pluto;
+  let MIN_F = prof.minF, MAX_F = prof.maxF, SCAN_FS = prof.scanFs;
 
   // Band buttons: default frequency, mode and the range used for the
   // wideband scan and for remembering the last frequency in the band.
@@ -31,7 +50,7 @@
     { name: 'FM', f: 80.0e6, mode: 'WFM', lo: 76e6, hi: 95e6, title: 'FM 放送 76–95 MHz' },
     { name: 'AIR', f: 118.1e6, mode: 'AM', lo: 118e6, hi: 137e6, title: 'エアバンド 118–137 MHz' },
     // Below the 70 MHz tuning limit: a placeholder key, disabled.
-    { name: '50', lo: 50e6, hi: 54e6, dummy: true, title: '50 MHz アマチュアバンド 50–54 MHz（70 MHz 未満は受信不可）' },
+    { name: '50', f: 51.0e6, mode: 'NFM', snap: 20e3, lo: 50e6, hi: 54e6, title: '50 MHz アマチュアバンド 50–54 MHz' },
     // Japanese amateur bands: NFM, 20 kHz channel step.
     { name: '144', f: 145.0e6, mode: 'NFM', snap: 20e3, lo: 144e6, hi: 146e6, title: '144 MHz アマチュアバンド 144–146 MHz' },
     { name: '430', f: 433.0e6, mode: 'NFM', snap: 20e3, lo: 430e6, hi: 440e6, title: '430 MHz アマチュアバンド 430–440 MHz' },
@@ -41,7 +60,7 @@
   ];
 
   const DEFAULTS = {
-    lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
+    device: 'pluto', lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
     mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
     ppm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
     fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
@@ -64,7 +83,6 @@
       m.bandwidth = m.filters[m.fil];
     }
     if (!MODE_DEFAULTS[s.mode]) s.mode = 'WFM';
-    if (!(s.sampleRate >= MIN_RATE)) s.sampleRate = MIN_RATE;
     return s;
   })();
   let saveTimer = 0;
@@ -298,38 +316,95 @@
     txRetune();
   }
 
+  // Device limits into the settings and the controls: sample rates, RF
+  // bandwidths, gain range and modes, band keys, scan parameters.
+  function applyProfile() {
+    prof = PROFILES[S.device] || PROFILES.pluto;
+    MIN_F = prof.minF; MAX_F = prof.maxF; SCAN_FS = prof.scanFs;
+    if (!prof.rates.includes(S.sampleRate)) S.sampleRate = prof.rate;
+    if (!prof.rfBws.includes(S.rfBw)) S.rfBw = 0;
+    if (!prof.gainModes.some(([v]) => v === S.gainMode)) S.gainMode = 'slow_attack';
+    S.gain = clamp(S.gain, prof.gain[0], prof.gain[1]);
+    S.scanGain = clamp(S.scanGain, prof.gain[0], prof.gain[1]);
+    fillSelect($('sampleRate'), prof.rates, (v) => fmtRate(v) + (v > prof.usbLimit ? ' (USB limit)' : ''));
+    fillSelect($('rfBw'), prof.rfBws, (v) => (v ? fmtHz(v, 1) : 'Auto'));
+    $('gainMode').innerHTML = '';
+    for (const [v, label] of prof.gainModes) $('gainMode').add(new Option(label, v));
+    for (const id of ['gain', 'scanGain']) { $(id).min = prof.gain[0]; $(id).max = prof.gain[1]; }
+    for (const id of ['scanStart', 'scanStop']) { $(id).min = MIN_F / 1e6; $(id).max = MAX_F / 1e6; }
+    for (const btn of $('bands').children) {
+      const b = BANDS.find((x) => x.name === btn.dataset.band);
+      btn.disabled = !(b.lo >= MIN_F && b.hi <= MAX_F);
+    }
+    $('scanInfo').textContent = `Sweeps at ${fmtRate(SCAN_FS)}, ${+(SCAN_FS * SCAN_USE / 1e6).toFixed(2)} MHz per step. Click the result to tune there.`;
+    $('biasTeeRow').hidden = S.device !== 'rtl';
+    $('biasTee').checked = false;
+  }
+
+  // The chooser lists every supported device; at startup an already
+  // permitted one is reused, preferring the kind used last.
+  async function openDevice(interactive) {
+    const kinds = Object.keys(PROFILES);
+    const kindOf = (d) => kinds.find((k) => PROFILES[k].driver().matches(d));
+    let d;
+    if (interactive) {
+      d = await navigator.usb.requestDevice({ filters: kinds.flatMap((k) => PROFILES[k].driver().FILTERS) });
+    } else {
+      const list = (await navigator.usb.getDevices()).filter(kindOf);
+      d = list.find((x) => kindOf(x) === S.device) || list[0];
+      if (!d) return null;
+    }
+    const kind = kindOf(d);
+    return { kind, dev: new (PROFILES[kind].driver())(d) };
+  }
+
   async function connect(interactive) {
     if (!navigator.usb) {
       toast('このブラウザは WebUSB に対応していません。Chrome または Edge で開いてください。');
       return;
     }
+    let name = 'SDR';
     try {
       // The Connect button always shows the device chooser; only the
       // automatic connect at startup reuses an already permitted device.
-      let p;
-      if (interactive) p = await window.Pluto.request();
-      else if (!(p = await window.Pluto.getPaired())) return;
+      const found = await openDevice(interactive);
+      if (!found) return;
+      const p = found.dev;
+      name = PROFILES[found.kind].name;
       await p.open();
       pluto = p;
+      if (S.device !== found.kind) {
+        S.device = found.kind;
+        save();
+      }
+      applyProfile();
+      syncControls();
       const serial = p.usb.serialNumber ? ' (' + p.usb.serialNumber.slice(-8) + ')' : '';
-      $('devName').textContent = (p.usb.productName || 'PlutoSDR') + serial;
-      const lo = await p.getRange(window.Pluto.RX_LO, 'frequency_available').catch(() => null);
+      $('devName').textContent = (p.usb.productName || name) + serial;
+      const lo = p.getRange ? await p.getRange(window.Pluto.RX_LO, 'frequency_available').catch(() => null) : null;
       if (lo && lo.min > 300e6) {
         toast(`周波数範囲が ${fmtHz(lo.min, 0)}〜${fmtHz(lo.max, 1)} に制限されています（AD9363 モード）。`, 'info');
+      }
+      // Into the new device's range.
+      if (S.vfo < MIN_F || S.vfo > MAX_F || S.lo < MIN_F || S.lo > MAX_F) {
+        S.vfo = S.lo = curLo = clamp(S.vfo, MIN_F, MAX_F);
+        renderFreq();
+        save();
       }
       await applySource();
       // Keep the transmitter quiet until PTT (the DDS tone is on at boot).
       await p.txIdle().catch(() => {});
       setStatus();
-      toast('Pluto SDR Nano に接続しました', 'info');
+      toast(`${name} に接続しました`, 'info');
       await startLive();
     } catch (e) {
       pluto = null;
       setStatus();
       if (e && e.name === 'NotFoundError') return; // chooser cancelled
-      let msg = 'Pluto SDR Nano に接続できません: ' + (e && e.message ? e.message : e);
+      let msg = `${name} に接続できません: ` + (e && e.message ? e.message : e);
       if (e && e.name === 'SecurityError') msg += '（このページの読み込み方法では WebUSB が使えません）';
-      if (/claim|busy|Unable/i.test(msg)) msg += ' — 他のアプリ（iio_info など）が Pluto SDR Nano を使っていないか確認してください。';
+      const busy = (PROFILES[S.device] || prof).busy;
+      if (/claim|busy|Unable|access/i.test(msg)) msg += ` — 他のアプリ（${busy}）が ${name} を使っていないか確認してください。`;
       toast(msg);
     }
   }
@@ -359,7 +434,7 @@
     $('devName').textContent = '—';
     setStatus();
     workerConfig();
-    toast(msg || 'Pluto SDR Nano との接続が切れました');
+    toast(msg || `${prof.name} との接続が切れました`);
   }
 
   if (navigator.usb) {
@@ -393,6 +468,7 @@
   async function applyPpm() {
     if (!pluto) return;
     try {
+      if (pluto.setPpm) { await pluto.setPpm(S.ppm); return; }
       const xo = Math.round(XO_NOMINAL * (1 + S.ppm * 1e-6));
       if (Math.abs(await pluto.getXoCorrection().catch(() => 0) - xo) <= 1) return;
       await pluto.setXoCorrection(xo);
@@ -432,7 +508,9 @@
         try {
           const iq = await pluto.readRx();
           if (token !== streamToken) break;
-          const lo = loForRead(rxReads++);
+          // The RTL-SDR driver tags each block with its LO.
+          const n = rxReads++;
+          const lo = iq.lo ?? loForRead(n);
           worker.postMessage({ type: 'iq', data: iq, lo }, [iq.buffer]);
         } catch (e) {
           if (token === streamToken) onDeviceLost('受信エラー: ' + e.message);
@@ -467,11 +545,12 @@
     rssiTimer = setInterval(async () => {
       if (!pluto || state !== 'live') return;
       try {
-        const r = await pluto.getRssi();
+        const r = pluto.getRssi ? await pluto.getRssi() : null;
         const g = await pluto.getGain();
         curGain = g;
         updatePanel();
-        $('rssiVal').textContent = `${r.toFixed(1)} dB · gain ${g.toFixed(0)} dB`;
+        $('rssiVal').textContent = (r === null ? '' : `${r.toFixed(1)} dB · `) + `gain ${g.toFixed(0)} dB` +
+          (pluto.direct ? ' · direct sampling' : '');
         if (S.gainMode !== 'manual') $('gainVal').textContent = g.toFixed(0) + ' dB';
       } catch (e) { /* transient */ }
     }, 1000);
@@ -516,7 +595,6 @@
       btn.title = b.title;
       btn.dataset.band = b.name;
       btn.className = 'key';
-      btn.disabled = !!b.dummy;
       btn.addEventListener('click', () => selectBand(b));
       el.appendChild(btn);
     }
@@ -1076,8 +1154,8 @@
 
   // Why TX is not possible right now, or '' when it is.
   function txBlocked() {
-    if (!pluto) return 'Pluto SDR Nano が接続されていません';
-    if (!pluto.canTx) return 'この Pluto SDR Nano では送信できません';
+    if (!pluto) return 'SDR が接続されていません';
+    if (!pluto.canTx) return `この ${prof.name} では送信できません`;
     if (!S.txEnabled) return '送信が無効です（サイドバーの Transmit で有効にしてください）';
     if (!TX_MODES.includes(S.mode)) return `${S.mode} では送信できません`;
     if (state === 'sweep') return 'スキャン中は送信できません';
@@ -1616,7 +1694,7 @@
     $('modeBadge').textContent = S.mode;
     $('bwBadge').textContent = `FIL${m.fil + 1} ${fmtStep(m.bandwidth)}`;
     $('tsBadge').textContent = 'TS ' + fmtStep(m.snap);
-    $('agcBadge').textContent = GAIN_MODES[S.gainMode] || S.gainMode;
+    $('agcBadge').textContent = S.device === 'rtl' && S.gainMode !== 'manual' ? 'AGC' : GAIN_MODES[S.gainMode] || S.gainMode;
     $('gainBadge').textContent = 'G ' + Math.round(curGain);
     $('srBadge').textContent = +(S.sampleRate / 1e6).toFixed(3) + 'M';
     $('sqlBadge').classList.toggle('on', S.squelchOn);
@@ -2131,7 +2209,7 @@
     dirty = true;
     try {
       await pluto.setSampleRate(SCAN_FS);
-      await pluto.setBandwidth(18e6);
+      await pluto.setBandwidth(prof.scanBw);
       await pluto.setGainMode('manual');
       await pluto.setGain(S.scanGain);
       await pluto.setKernelBuffers(2);
@@ -2151,7 +2229,8 @@
           await pluto.setFrequency(lo);
           await pluto.readRx();
           await pluto.readRx();
-          const iq = await pluto.readRx();
+          let iq = await pluto.readRx();
+          while (iq.lo !== undefined && iq.lo !== lo) iq = await pluto.readRx();
           const db = await sweepFFT(iq, lo);
           if (token !== streamToken) break;
           // DC spike: patch the centre bins from their neighbours.
@@ -2252,8 +2331,7 @@
   }
 
   function bindControls() {
-    fillSelect($('sampleRate'), SAMPLE_RATES, (v) => fmtRate(v) + (v > 6e6 ? ' (USB limit)' : ''));
-    fillSelect($('rfBw'), RF_BWS, (v) => (v ? fmtHz(v, 1) : 'Auto'));
+    applyProfile();
 
     const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
 
@@ -2274,6 +2352,9 @@
       await restartIfLive();
       setVfo(S.vfo);
       setStatus();
+    });
+    on('biasTee', 'change', (e) => {
+      if (pluto && pluto.setBiasTee) pluto.setBiasTee(e.target.checked).catch((err) => toast(err.message));
     });
     on('rfBw', 'change', async (e) => {
       S.rfBw = +e.target.value;
