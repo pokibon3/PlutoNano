@@ -62,7 +62,7 @@
   const DEFAULTS = {
     device: 'pluto', lo: 80e6, vfo: 80e6, sampleRate: 2.4e6, rfBw: 0, gainMode: 'slow_attack', gain: 50,
     mode: 'WFM', perMode: JSON.parse(JSON.stringify(MODE_DEFAULTS)),
-    ppm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
+    ppm: 0, rtlPpm: 0, squelchOn: false, squelch: -60, volume: 0.6, stereo: true,
     fftSize: 8192, fps: 30, window: 'bh', smoothing: 0.8, colormap: 'classic',
     dbMin: -120, dbMax: -30, zoom: 0, specFrac: 0.32,
     scanStart: 76, scanStop: 95, scanGain: 50, menu: true, introSeen: false,
@@ -471,12 +471,15 @@
 
   // Crystal correction: +ppm means the reference runs fast, so signals
   // appear lower than their true frequency.
+  // Kept per device type, as each has its own crystal.
   const XO_NOMINAL = 40e6;
+  const ppmKey = () => (S.device === 'rtl' ? 'rtlPpm' : 'ppm');
   async function applyPpm() {
     if (!pluto) return;
+    const ppm = S[ppmKey()];
     try {
-      if (pluto.setPpm) { await pluto.setPpm(S.ppm); return; }
-      const xo = Math.round(XO_NOMINAL * (1 + S.ppm * 1e-6));
+      if (pluto.setPpm) { await pluto.setPpm(ppm); return; }
+      const xo = Math.round(XO_NOMINAL * (1 + ppm * 1e-6));
       if (Math.abs(await pluto.getXoCorrection().catch(() => 0) - xo) <= 1) return;
       await pluto.setXoCorrection(xo);
     } catch (e) {
@@ -2311,7 +2314,7 @@
     $('rfBw').value = S.rfBw;
     $('gainMode').value = S.gainMode;
     $('gain').value = S.gain;
-    $('ppm').value = S.ppm;
+    $('ppm').value = S[ppmKey()];
     $('meterCal').value = S[calKey()];
     if (S.gainMode === 'manual') curGain = S.gain;
     $('gain').disabled = S.gainMode !== 'manual';
@@ -2385,8 +2388,9 @@
       }
     });
     on('ppm', 'change', async (e) => {
-      S.ppm = clamp(Math.round((+e.target.value || 0) * 10) / 10, -100, 100);
-      e.target.value = S.ppm;
+      const k = ppmKey();
+      S[k] = clamp(Math.round((+e.target.value || 0) * 10) / 10, -100, 100);
+      e.target.value = S[k];
       save();
       if (!pluto) return;
       await applyPpm();
