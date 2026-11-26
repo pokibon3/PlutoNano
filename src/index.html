@@ -136,6 +136,8 @@
         <select id="decoder">
           <option value="">Off</option><option value="CW">CW</option><option value="FT8">FT8</option><option value="FT4">FT4</option>
         </select></div>
+      <div class="row" title="CW の文字の求め方。DL (既定) は学習済みのニューラルネットワークで、手送りの癖が強い送信や文字間が詰まった送信でも誤りが少なく、欧文 / 和文も文字の並びから自動で切り替えます。標準は符号表で求めます (CW Decoder 4 の SETUP のデコーダと同じ)"><span class="lbl">CW engine</span>
+        <select id="cwEng"><option value="1">DL</option><option value="0">標準</option></select></div>
       <div class="row" title="CW デコーダへの入力レベル。受信音量（AF）とは別"><span class="lbl">CW input</span>
         <input id="cwGain" type="range" min="-20" max="20" step="1"><span id="cwGainVal" class="num">0 dB</span></div>
       <div class="row"><span class="hint">ウォーターフォールの下に送受信のパネルを開きます。受信は復調した音声を解読します（CW は CW / USB / LSB、FT8・FT4 は USB）。送信は Transmit で有効にしたうえで、CW は CW モード、FT8・FT4 は USB で行います。FT8・FT4 は PC の時計が ±1 秒以内に合っている必要があります。</span></div>

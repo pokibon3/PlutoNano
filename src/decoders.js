@@ -93,6 +93,7 @@ const PlutoDecoders = (function () {
       // NR (noise reduction) as the device's SETUP NR: on = tone detection E (ALE amplitude, dsp.h DSP_DET_ALE_AMP),
       // off = the plain Goertzel A
       this.nr = true;
+      this.engine = 1;   // 1 = DL, 0 = rule decoder (set before start)
       this.rxBw = 0;    // receive filter width (Hz), for the BPF choice
       this.bpf = null; this.bpfOn = false;
       this.spec = new Uint16Array(SPEC_BINS);
@@ -147,6 +148,7 @@ const PlutoDecoders = (function () {
       await ready;
       node.port.postMessage({ type: 'reset' });
       this.setNr(this.nr);
+      this.setEngine(this.engine);   // the core starts with the rule decoder (0)
       // the core restarts its column count and input counter
       this.sTotal = 0; this.ticker = []; this.lastPushed = -1; this.inRate = 0;
       this.dispatchEvent(new Event('state'));
@@ -166,6 +168,8 @@ const PlutoDecoders = (function () {
     cycleTone() { this.node?.port.postMessage({ type: 'cycleTone' }); }
     setToneHz(hz) { this.node?.port.postMessage({ type: 'toneHz', hz: Math.round(hz) }); }
     setNr(on) { this.nr = !!on; this.node?.port.postMessage({ type: 'det', mode: this.nr ? 4 : 0 }); this._wireBpf(); }
+    // 1 = DL (GRU, cw_decoder4's default), 0 = rule decoder
+    setEngine(e) { this.engine = e; this.node?.port.postMessage({ type: 'engine', mode: e }); }
     setRxBandwidth(hz) { this.rxBw = hz; this._wireBpf(); }
     setGain(db) { this.gain = Math.pow(10, (db + GAIN_OFFSET) / 20); this.node?.port.postMessage({ type: 'gain', value: this.gain }); }
     clear() { this.chars = []; this.ticker = []; this.dispatchEvent(new Event('text')); }

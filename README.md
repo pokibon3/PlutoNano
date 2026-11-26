@@ -104,9 +104,10 @@ RTL2832U + R820T / R820T2 の RTL-SDR（RTL-SDR Blog V3 など）で受信でき
 
 サイドバーの **CW / FT8 / FT4** でモードを選ぶと、ウォーターフォールの下に送受信のパネルが開く。ウォーターフォールとの境目をドラッグして比率を変えられる（ダブルクリックで初期値）。パネルは [FTX-1 Controller](https://github.com/pokibon3/FTX1Controller) と同じ作りで、デコーダも同じもの（WebAssembly を AudioWorklet / Worker で実行）。受信は音量（AF）に関係なく、音量調整の前の音声を解読する。
 
-- CW 受信: [CW Decoder 4](https://github.com/pokibon3/cw_decoder4) の WebAssembly 版（ESP32 版と同じ DSP / デコーダ、GPL）。表示も CW Decoder 4 の Web 版と同じで、状態の行（WPM・トーン・ピーク周波数・入力レベル）、解読文（最新の文字を強調）、FFT スペクトラム、オシロスコープ（KEY / ENV / RAW、時間軸の倍率）がある。CW / USB / LSB で受信する（FM / AM モードで選ぶと CW に切り替える）
+- CW 受信: [CW Decoder 4](https://github.com/pokibon3/cw_decoder4) の WebAssembly 版（ESP32 版と同じ DSP / デコーダ、GPL）。文字は CW Decoder 4 v4.1 の DL デコーダ（学習済みのニューラルネットワーク）で求め、欧文・和文（`US`/`JP`）はホレ / ラタのほか、文字の並びからも判定して自動で切り替わる。表示も CW Decoder 4 の Web 版と同じで、状態の行（WPM・トーン・ピーク周波数・入力レベル）、解読文（最新の文字を強調）、FFT スペクトラム、オシロスコープ（KEY / ENV / RAW、時間軸の倍率）がある。CW / USB / LSB で受信する（FM / AM モードで選ぶと CW に切り替える）
   - `US` / `JP` で欧文・和文、トーンボタンで AUTO（500〜1000 Hz 自動同調）と手動 600〜1000 Hz を切り替える。FFT のクリックでもトーンを選べる
-  - `NR` でノイズ低減（CW Decoder 4 v3.4 の SETUP の NR と同じ、適応型ラインエンハンサ ALE）。既定 ON（緑）。弱い信号の感度を上げ、ノイズの偽文字を減らす
+  - 左側の CW / FT8 / FT4 の `CW engine` でデコーダを選ぶ。`DL`（既定）は学習済みのニューラルネットワーク、`標準` は符号表で文字を求める（CW Decoder 4 の SETUP のデコーダと同じ）
+  - `NR` でノイズ低減（CW Decoder 4 の SETUP の NR と同じ、適応型ラインエンハンサ ALE）。既定 ON（緑）。弱い信号の感度を上げ、ノイズの偽文字を減らす
   - FFT のダブルクリック、オシロスコープのクリックでそのグラフを全幅表示。**コピー** で解読文をクリップボードへ
   - 入力レベルはサイドバーの **CW input**
   - 受信機の AGC 後の音声を −20 dB 下げてデコーダに入れる（CW input の 0 dB がこの位置）。NR ON で受信フィルタが 500 Hz 以上のときは、CW Decoder 4 の Web 版と同じ入力 BPF（Q=3、トーン追従）を入れる。それより狭いフィルタや NR OFF では、BPF がノイズをトーンに見せるので入れない（評価は `tools/cw-eval.mjs`）

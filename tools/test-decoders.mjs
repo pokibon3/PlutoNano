@@ -104,6 +104,7 @@ async function cwDecode(x) {
   await p.onMessage({ type: 'wasm', bytes: b64('cwcore-wasm') });
   p.onMessage({ type: 'reset' });
   p.onMessage({ type: 'det', mode: 4 });  // NR on, as the app's default
+  p.onMessage({ type: 'engine', mode: 1 });  // the DL decoder, as the app's default
   for (let i = 0; i < x.length; i += 128) { ctx.currentTime = i / AR; p.process([[x.subarray(i, i + 128)]]); }
   p.onMessage({ type: 'drain' });
   let s = '', wpm = 0, tone = 0;
